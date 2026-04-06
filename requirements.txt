@@ -1,0 +1,41 @@
+# AutoScanMind - Python 依赖清单
+# Python >= 3.10
+
+# Web 框架 & 桌面 GUI
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pywebview==5.1
+python-multipart==0.0.9
+
+# CLIP 模型 (HuggingFace transformers + PyTorch CPU)
+transformers==4.40.2
+torch==2.3.0
+torchvision==0.18.0
+Pillow==10.3.0
+
+# 向量索引
+faiss-cpu==1.8.0
+
+# OCR
+paddlepaddle==2.6.2
+paddleocr==2.8.1
+
+# 文字检索 (BM25)
+rank_bm25==0.2.2
+
+# 文件监控 (增量索引)
+watchdog==4.0.1
+
+# 数据库
+# (使用 Python 内置 sqlite3，无需额外安装)
+
+# 工具类
+numpy==1.26.4
+tqdm==4.66.4
+loguru==0.7.2
+pydantic==2.7.1
+pydantic-settings==2.2.1
+aiofiles==23.2.1
+
+# 打包 (开发依赖)
+pyinstaller==6.6.0

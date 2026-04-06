@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# PyInstaller
+*.spec.bak
+dist/
+build/
+
+# 运行时数据（索引、数据库、日志、缩略图等）
+data/faiss.index
+data/faiss_id_map.json
+data/text_index.json
+data/metadata.db
+data/settings.json
+data/logs/
+data/thumbnails/
+# 保留 .gitkeep
+!data/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# HuggingFace 模型缓存（体积过大）
+# 若本地缓存，添加到 .gitignore
+# models/
+
+# 日志
+*.log

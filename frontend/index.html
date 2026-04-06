@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoScanMind — 智能图片搜索</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- ══ 粒子背景 ══════════════════════════════════════════════ -->
+  <canvas id="bg-canvas"></canvas>
+
+  <!-- ══ 主容器 ════════════════════════════════════════════════ -->
+  <div id="app">
+
+    <!-- ── 顶部导航栏 ──────────────────────────────────────── -->
+    <header id="topbar">
+      <div class="topbar-left">
+        <div class="logo-wrap">
+          <svg class="logo-icon" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="18" cy="18" r="17" stroke="url(#lg1)" stroke-width="2"/>
+            <circle cx="18" cy="18" r="7" fill="url(#lg2)"/>
+            <line x1="18" y1="1" x2="18" y2="8" stroke="url(#lg1)" stroke-width="2" stroke-linecap="round"/>
+            <line x1="18" y1="28" x2="18" y2="35" stroke="url(#lg1)" stroke-width="2" stroke-linecap="round"/>
+            <line x1="1" y1="18" x2="8" y2="18" stroke="url(#lg1)" stroke-width="2" stroke-linecap="round"/>
+            <line x1="28" y1="18" x2="35" y2="18" stroke="url(#lg1)" stroke-width="2" stroke-linecap="round"/>
+            <defs>
+              <linearGradient id="lg1" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#38bdf8"/>
+                <stop offset="1" stop-color="#818cf8"/>
+              </linearGradient>
+              <linearGradient id="lg2" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#38bdf8" stop-opacity="0.9"/>
+                <stop offset="1" stop-color="#818cf8" stop-opacity="0.9"/>
+              </linearGradient>
+            </defs>
+          </svg>
+          <span class="app-name">AutoScan<span class="accent">Mind</span></span>
+        </div>
+        <span class="tagline">本地智能图片搜索 · 完全离线</span>
+      </div>
+      <div class="topbar-right">
+        <div id="index-dot" class="status-dot idle" title="索引状态"></div>
+        <button class="icon-btn" id="btn-settings" title="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ── 搜索区域 ─────────────────────────────────────────── -->
+    <section id="search-section">
+      <div class="search-box-wrap">
+        <div class="search-box glass">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            id="search-input"
+            type="text"
+            placeholder="输入任何描述，例如「猫」「合同」「海边日落」…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button class="clear-btn" id="btn-clear" title="清除" style="display:none">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+          <button class="search-btn" id="btn-search">搜索</button>
+        </div>
+
+        <!-- 搜索模式选择 -->
+        <div class="search-meta">
+          <div class="mode-tabs">
+            <button class="mode-tab active" data-mode="hybrid">🔀 融合</button>
+            <button class="mode-tab" data-mode="clip">🖼️ 语义</button>
+            <button class="mode-tab" data-mode="ocr">📝 文字</button>
+          </div>
+          <span id="result-count" class="result-count"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 空状态 / 欢迎屏幕 ──────────────────────────────── -->
+    <div id="empty-state" class="empty-state">
+      <div class="empty-icon">
+        <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="8" y="18" width="64" height="48" rx="6" stroke="url(#eg1)" stroke-width="2.5"/>
+          <circle cx="27" cy="33" r="6" stroke="url(#eg1)" stroke-width="2"/>
+          <path d="M8 52 L22 38 L34 50 L48 34 L72 56" stroke="url(#eg1)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs>
+            <linearGradient id="eg1" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#38bdf8"/><stop offset="1" stop-color="#818cf8"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <h2>开始搜索你的图片</h2>
+      <p>输入任何关键词，AutoScanMind 将同时搜索图片视觉内容与图片中的文字</p>
+      <div class="tips-grid">
+        <div class="tip-card glass"><span class="tip-icon">🐱</span><span>猫咪</span></div>
+        <div class="tip-card glass"><span class="tip-icon">🌅</span><span>日落海边</span></div>
+        <div class="tip-card glass"><span class="tip-icon">📄</span><span>合同文件</span></div>
+        <div class="tip-card glass"><span class="tip-icon">🏠</span><span>家庭聚会</span></div>
+        <div class="tip-card glass"><span class="tip-icon">🎂</span><span>生日蛋糕</span></div>
+        <div class="tip-card glass"><span class="tip-icon">✈️</span><span>旅行风景</span></div>
+      </div>
+    </div>
+
+    <!-- ── 搜索结果网格 ────────────────────────────────────── -->
+    <div id="results-section" style="display:none">
+      <div id="results-grid" class="results-grid"></div>
+      <div id="load-more-wrap" style="text-align:center;padding:24px;display:none">
+        <button class="load-more-btn glass" id="btn-load-more">加载更多</button>
+      </div>
+    </div>
+
+    <!-- ── 加载动画 ────────────────────────────────────────── -->
+    <div id="loading-overlay" class="loading-overlay" style="display:none">
+      <div class="spinner-wrap">
+        <div class="spinner"></div>
+        <p>正在搜索中…</p>
+      </div>
+    </div>
+
+    <!-- ══ 底部状态栏 ════════════════════════════════════════ -->
+    <footer id="statusbar">
+      <div class="status-left">
+        <span id="index-status-text">就绪</span>
+        <div id="index-progress-bar-wrap" style="display:none">
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progress-fill"></div>
+          </div>
+          <span id="progress-text" class="progress-text">0%</span>
+        </div>
+      </div>
+      <div class="status-right">
+        <span id="total-indexed">已索引 <strong>0</strong> 张图片</span>
+        <span id="last-update-time"></span>
+      </div>
+    </footer>
+
+  </div><!-- /#app -->
+
+  <!-- ══ 设置侧边面板 ══════════════════════════════════════════ -->
+  <div id="settings-overlay" class="settings-overlay" style="display:none"></div>
+  <aside id="settings-panel" class="settings-panel glass">
+    <div class="settings-header">
+      <h3>⚙️ 设置</h3>
+      <button class="icon-btn" id="btn-close-settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="settings-body">
+
+      <!-- 搜索范围 -->
+      <section class="settings-section">
+        <h4>📁 搜索范围</h4>
+        <div id="dir-list" class="dir-list"></div>
+        <div class="dir-input-row">
+          <input type="text" id="dir-input" placeholder="输入或粘贴文件夹路径…" />
+          <button class="btn-add-dir" id="btn-add-dir">添加</button>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle-label">
+            <input type="checkbox" id="chk-full-disk" />
+            <span class="toggle-track"></span>
+            <span>扫描整个磁盘（需管理员权限）</span>
+          </label>
+        </div>
+        <div id="drives-section" style="display:none">
+          <p class="hint">选择要扫描的磁盘：</p>
+          <div id="drives-list" class="drives-list"></div>
+        </div>
+      </section>
+
+      <!-- 索引控制 -->
+      <section class="settings-section">
+        <h4>🔍 索引管理</h4>
+        <div class="btn-row">
+          <button class="btn-primary" id="btn-open-index-mgr">📋 索引管理</button>
+          <button class="btn-purge-cleanup" id="btn-open-purge" style="width:auto">🗑 索引清理</button>
+        </div>
+      </section>
+
+      <!-- 融合权重 -->
+      <section class="settings-section">
+        <h4>⚖️ 融合权重</h4>
+        <div class="slider-row">
+          <span class="slider-label">语义 (CLIP)</span>
+          <input type="range" id="alpha-slider" min="0" max="100" value="60" />
+          <span class="slider-value"><span id="alpha-val">60</span>%</span>
+        </div>
+        <div class="slider-row">
+          <span class="slider-label">文字 (OCR)</span>
+          <div class="slider-fill-display">
+            <div id="ocr-bar" style="width:40%;background:linear-gradient(90deg,#f59e0b,#fbbf24);height:4px;border-radius:2px;transition:width .3s"></div>
+          </div>
+          <span class="slider-value"><span id="ocr-val">40</span>%</span>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle-label">
+            <input type="checkbox" id="chk-ocr" checked />
+            <span class="toggle-track"></span>
+            <span>启用 OCR 文字识别（首次索引较慢）</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- 关于 -->
+      <section class="settings-section about-section">
+        <h4>ℹ️ 关于</h4>
+        <p><strong>AutoScanMind</strong> v1.0.0</p>
+        <p>本地智能图片搜索工具</p>
+        <p>CLIP + PaddleOCR + FAISS</p>
+        <p class="muted">完全离线 · 保护隐私 · 开源免费</p>
+        <a href="#" id="btn-open-data-dir" class="link-btn">📂 打开数据目录</a>
+      </section>
+
+    </div>
+
+    <div class="settings-footer">
+      <button class="btn-primary full-width" id="btn-save-settings">💾 保存设置</button>
+    </div>
+  </aside>
+
+  <!-- ══ 索引管理弹窗 ══════════════════════════════════════════════ -->
+  <div id="index-mgr-modal" class="purge-modal" style="display:none">
+    <div class="purge-backdrop" id="index-mgr-backdrop"></div>
+    <div class="purge-content">
+      <div class="purge-resize-handle" id="index-mgr-resize-handle">
+        <svg viewBox="0 0 10 10" fill="currentColor"><path d="M9 1v3h-1V2.7L5.4 5.3l-.7-.7L7.3 2H5V1h4zM1 9h3V8H2.7l2.6-2.6-.7-.7L2 7.3V5H1v4z"/></svg>
+      </div>
+      <div class="purge-header">
+        <h3>📋 索引管理</h3>
+        <span class="hint">对单个目录进行增量索引或重建索引，避免全量重建</span>
+      </div>
+      <div class="purge-body" id="index-mgr-dirs-list">
+        <!-- 动态填充 -->
+      </div>
+      <div class="purge-footer">
+        <button class="btn-outline" id="btn-close-index-mgr">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 索引清理弹窗 ══════════════════════════════════════════════ -->
+  <div id="purge-modal" class="purge-modal" style="display:none">
+    <div class="purge-backdrop" id="purge-backdrop"></div>
+    <div class="purge-content">
+      <div class="purge-resize-handle" id="purge-resize-handle">
+        <svg viewBox="0 0 10 10" fill="currentColor"><path d="M9 1v3h-1V2.7L5.4 5.3l-.7-.7L7.3 2H5V1h4zM1 9h3V8H2.7l2.6-2.6-.7-.7L2 7.3V5H1v4z"/></svg>
+      </div>
+      <div class="purge-header">
+        <h3>🗑 索引清理</h3>
+        <span class="hint">选择要清理的已索引目录，释放存储空间</span>
+      </div>
+      <div class="purge-body" id="purge-dirs-list">
+        <!-- 动态填充 -->
+      </div>
+      <div class="purge-footer">
+        <button class="btn-outline" id="btn-close-purge">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 图片预览弹窗 ══════════════════════════════════════════ -->
+  <div id="preview-modal" class="preview-modal" style="display:none">
+    <div class="preview-backdrop" id="preview-backdrop"></div>
+    <div class="preview-content glass">
+      <div class="preview-header">
+        <span id="preview-filename" class="preview-filename"></span>
+        <button class="icon-btn" id="btn-close-preview">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="preview-img-wrap">
+        <img id="preview-img" src="" alt="" />
+      </div>
+      <div class="preview-info">
+        <div class="preview-meta" id="preview-meta"></div>
+        <div class="preview-ocr" id="preview-ocr" style="display:none">
+          <strong>识别文字：</strong>
+          <span id="preview-ocr-text"></span>
+        </div>
+        <div class="preview-actions">
+          <button class="btn-primary" id="btn-preview-open">🗂 打开文件</button>
+          <button class="btn-outline" id="btn-preview-folder">📁 打开所在目录</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js?v=5"></script>
+  <script src="js/settings.js?v=9"></script>
+</body>
+</html>
