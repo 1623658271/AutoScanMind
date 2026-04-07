@@ -1032,6 +1032,37 @@ body {
   border-color: var(--accent-orange);
 }
 
+/* 有新图片的目录条目高亮边框 */
+.purge-dir-item.has-new-images {
+  border-color: rgba(56,189,248,0.35);
+}
+.purge-dir-item.has-new-images:hover {
+  border-color: rgba(56,189,248,0.55);
+}
+
+/* 新图片提示标签 */
+.index-mgr-new-tip {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--accent-blue);
+  background: rgba(56,189,248,0.1);
+  border: 1px solid rgba(56,189,248,0.25);
+  padding: 1px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all var(--transition);
+  animation: new-tip-pulse 2s ease-in-out infinite;
+}
+.index-mgr-new-tip:hover {
+  background: rgba(56,189,248,0.2);
+  border-color: var(--accent-blue);
+}
+@keyframes new-tip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 /* 索引清理弹窗 */
 .purge-modal {
   position: fixed;
@@ -1122,8 +1153,9 @@ body {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
 }
 .purge-dir-path {
   font-size: 13px;
@@ -1131,10 +1163,22 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  user-select: text;
+  cursor: text;
+}
+.purge-dir-path:hover {
+  color: var(--text-primary);
 }
 .purge-dir-count {
+  flex-shrink: 0;
   font-size: 11px;
   color: var(--text-muted);
+  background: var(--bg-layer2);
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
 }
 .purge-dir-btn {
   flex-shrink: 0;

@@ -83,9 +83,10 @@ document.addEventListener('DOMContentLoaded', () => {
 //  打开 / 关闭设置面板
 // ══════════════════════════════════════════════════════════════════
 async function openSettings() {
-  await loadSettings();
+  // 无论加载成功与否都打开面板，避免后端无响应时设置打不开
   settingsOverlay.style.display = '';
   settingsPanel.classList.add('open');
+  loadSettings();  // 异步加载，不阻塞面板显示
 }
 
 function closeSettings() {
@@ -98,12 +99,17 @@ function closeSettings() {
 // ══════════════════════════════════════════════════════════════════
 async function loadSettings() {
   try {
-    const res = await fetch(`${API}/api/settings`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000); // 5秒超时
+    const res = await fetch(`${API}/api/settings`, { signal: controller.signal });
+    clearTimeout(timer);
     if (!res.ok) return;
     currentSettings = await res.json();
     applySettingsToUI(currentSettings);
   } catch (e) {
-    console.warn('加载设置失败:', e);
+    if (e.name !== 'AbortError') {
+      console.warn('加载设置失败:', e);
+    }
   }
 }
 
@@ -644,12 +650,23 @@ async function loadIndexMgrDirs() {
 
     container.innerHTML = '';
     dirs.forEach(d => {
+      const total = d.total_images != null ? d.total_images : null;
+      const indexed = d.count || 0;
+      const hasNew = total !== null && total > indexed;
+      const newCount = hasNew ? total - indexed : 0;
+      const countLabel = total !== null
+        ? `<span class="purge-dir-count">${indexed}/${total} 张图片</span>`
+        : `<span class="purge-dir-count">${indexed} 张图片</span>`;
+      const newTip = hasNew
+        ? `<span class="index-mgr-new-tip" title="有 ${newCount} 张新图片未索引，点击可增量索引">${newCount} 张新图片 ↻</span>`
+        : '';
       const item = document.createElement('div');
-      item.className = 'purge-dir-item';
+      item.className = 'purge-dir-item' + (hasNew ? ' has-new-images' : '');
       item.innerHTML = `
         <div class="purge-dir-info">
           <span class="purge-dir-path" title="${escapeHtml(d.directory)}">${escapeHtml(d.directory)}</span>
-          <span class="purge-dir-count">${d.count} 张图片</span>
+          ${countLabel}
+          ${newTip}
         </div>
         <div class="index-mgr-dir-actions">
           <button class="index-mgr-btn-incremental" title="增量索引：仅扫描新增图片" data-dir="${escapeHtml(d.directory)}">
@@ -679,6 +696,36 @@ async function loadIndexMgrDirs() {
         indexMgrQueueList.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         _settingsToast(`已添加到队列：${dir.split(/[\\/]/).pop()}`, 'success');
       });
+
+      // 双击路径打开文件夹
+      item.querySelector('.purge-dir-path').addEventListener('dblclick', async function() {
+        const dir = this.getAttribute('title');
+        if (!dir) return;
+        try {
+          await fetch(`${API}/api/files/open-folder`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: dir }),
+          });
+        } catch { /* 静默忽略 */ }
+      });
+
+      // 点击"新图片"提示直接加入队列
+      const newTipEl = item.querySelector('.index-mgr-new-tip');
+      if (newTipEl) {
+        newTipEl.addEventListener('click', function() {
+          const dir = d.directory;
+          if (!_indexMgrQueue.includes(dir)) {
+            _indexMgrQueue.push(dir);
+            _renderIndexMgrQueue();
+          }
+          // 隐藏提示
+          this.style.display = 'none';
+          item.classList.remove('has-new-images');
+          indexMgrQueueList.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          _settingsToast(`已添加到队列：${dir.split(/[\\/]/).pop()}`, 'success');
+        });
+      }
 
       // 重建索引
       item.querySelector('.index-mgr-btn-rebuild').addEventListener('click', async function() {

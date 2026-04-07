@@ -29,6 +29,50 @@ from backend.engine.text_index import TextIndex
 from backend.models.schemas import IndexProgressInfo, IndexStatus
 
 
+def _count_images_in_dir(
+    directory: str,
+    extensions: set,
+    exclude_dirs: set,
+    _depth: int = 0,
+    _max_depth: int = 30,
+) -> int:
+    """
+    递归统计指定目录下的图片文件总数（仅计数，不计算哈希）。
+
+    Args:
+        directory: 要扫描的目录路径
+        extensions: 支持的图片扩展名集合（小写，含点号）
+        exclude_dirs: 要排除的目录名集合
+        _depth: 当前递归深度（内部使用）
+        _max_depth: 最大递归深度，防止栈溢出
+
+    Returns:
+        图片文件数量
+    """
+    count = 0
+    try:
+        base = Path(directory)
+        if not base.exists() or not base.is_dir():
+            return 0
+        if _depth >= _max_depth:
+            return 0
+        with os.scandir(base) as it:
+            for entry in it:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        if entry.name in exclude_dirs or entry.name.startswith("."):
+                            continue
+                        count += _count_images_in_dir(entry.path, extensions, exclude_dirs, _depth + 1, _max_depth)
+                    elif entry.is_file(follow_symlinks=False):
+                        if Path(entry.path).suffix.lower() in extensions:
+                            count += 1
+                except (PermissionError, OSError):
+                    continue
+    except (PermissionError, OSError):
+        pass
+    return count
+
+
 class IndexManager:
     """索引管理器：单例，线程安全。"""
 
@@ -229,12 +273,14 @@ class IndexManager:
 
     def get_indexed_directories(self) -> List[dict]:
         """
-        统计当前索引中各目录的图片数量。
+        统计当前索引中各目录的图片数量，以及该目录下实际的图片文件总数。
 
         Returns:
-            [{"directory": "...", "count": N}, ...] 按 count 降序
+            [{"directory": "...", "count": N, "total_images": M}, ...] 按 count 降序
         """
         from collections import Counter
+        from config import SUPPORTED_EXTENSIONS, SCAN_EXCLUDE_DIRS
+
         all_paths = self.db.all_paths()
         dir_counter: Counter = Counter()
         for p in all_paths:
@@ -243,10 +289,13 @@ class IndexManager:
                 dir_counter[parent] += 1
             except Exception:
                 pass
-        return [
-            {"directory": d, "count": c}
-            for d, c in dir_counter.most_common()
-        ]
+
+        result = []
+        for d, c in dir_counter.most_common():
+            # 快速统计该目录下实际图片文件总数（递归，仅计数不计算哈希）
+            total = _count_images_in_dir(d, SUPPORTED_EXTENSIONS, SCAN_EXCLUDE_DIRS)
+            result.append({"directory": d, "count": c, "total_images": total})
+        return result
 
     # ── 后台工作线程 ─────────────────────────────────────────────
     def _index_worker(

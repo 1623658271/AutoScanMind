@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -50,9 +51,10 @@ async def stop_index() -> OkResponse:
 
 @router.get("/indexed-dirs")
 async def get_indexed_directories():
-    """获取当前索引中各目录的图片数量统计。"""
+    """获取当前索引中各目录的图片数量统计（含磁盘实际图片总数）。"""
     manager = IndexManager()
-    dirs = manager.get_indexed_directories()
+    loop = asyncio.get_event_loop()
+    dirs = await loop.run_in_executor(None, manager.get_indexed_directories)
     return {"directories": dirs}
 
 
