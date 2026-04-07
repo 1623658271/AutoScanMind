@@ -183,6 +183,9 @@ backend/models/
 
 首次运行时 PaddleOCR 会自动下载模型到 `backend/models/paddleocr/` 目录。CLIP 模型需手动下载放置（约 1.2GB）。
 
+PaddleOCR下载地址：
+CLIP模型下载地址：https://huggingface.co/OFA-Sys/chinese-clip-vit-large-patch14/tree/main
+
 ### 首次运行
 
 ```bash
