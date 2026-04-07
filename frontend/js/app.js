@@ -5,12 +5,22 @@
 
 const API = 'http://127.0.0.1:18765';
 const PAGE_SIZE = 30;
+const _APP_JS_VERSION = 'v22';
 
 let allResults = [];
 let displayedCount = 0;
 let currentMode = 'hybrid';
 let previewItem = null;
 let progressTimer = null;
+
+// 索引遮罩状态（保存设置触发自动索引时）
+let _indexingBlockActive = false;
+let _indexingBlockTimer  = null;
+
+// 目录筛选状态
+let indexedDirs = [];           // 已索引目录列表 [{"directory":..., "count":...}, ...]
+let selectedDirSet = new Set();  // 选中的目录，空集合 = 不搜任何目录
+let dirFilterOpen = false;
 
 // ── DOM 引用 ──────────────────────────────────────────────────────
 const searchInput    = document.getElementById('search-input');
@@ -40,6 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initModeSelector();
   initPreviewModal();
   initTipCards();
+  initDirFilter();
   startProgressPolling();
 });
 
@@ -79,14 +90,23 @@ async function doSearch() {
   resultsSection.style.display = 'none';
 
   try {
+    const body = {
+      query,
+      top_n: 0,  // 0 = 不限制，返回所有匹配结果
+      mode: currentMode,
+    };
+    // 只有在已成功加载目录列表且 selectedDirSet 非空时才限制搜索范围
+    // selectedDirSet 为空说明选中状态异常，此时不限制目录（搜全部）
+    if (indexedDirs.length > 0 && selectedDirSet.size > 0) {
+      body.directories = [...selectedDirSet];
+    }
+    // TODO: 调试，确认后删除
+    console.log('[doSearch] directories:', JSON.stringify(body.directories || null), 'selectedDirSet size:', selectedDirSet.size, 'indexedDirs count:', indexedDirs.length);
+
     const res = await fetch(`${API}/api/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query,
-        top_n: 200,
-        mode: currentMode,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -313,6 +333,216 @@ async function openFolder(event, path) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  搜索目录筛选器
+// ══════════════════════════════════════════════════════════════════
+function initDirFilter() {
+  const toggle = document.getElementById('search-dir-toggle');
+  const dropdown = document.getElementById('search-dir-dropdown');
+  const checkAll = document.getElementById('search-dir-checkall');
+
+  if (!toggle || !dropdown || !checkAll) {
+    console.error('[initDirFilter] 元素缺失!');
+    return;
+  }
+
+  // ── 渲染函数（闭包内，避免外部引用问题）───────────────────
+  function renderDirItems() {
+    const listEl = document.getElementById('search-dir-list');
+    if (!listEl) return;
+
+    listEl.innerHTML = '';
+
+    if (indexedDirs.length === 0) {
+      listEl.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:12px;text-align:center">暂无已索引的目录</div>';
+      return;
+    }
+
+    indexedDirs.forEach(d => {
+      const dir = d.directory;
+      const isSelected = selectedDirSet.has(dir);
+      const item = document.createElement('label');
+      item.className = 'search-dir-item';
+      item.innerHTML =
+        '<input type="checkbox" ' + (isSelected ? 'checked' : '') + ' />' +
+        '<span class="check-box"></span>' +
+        '<span class="search-dir-item-path" title="' + dir + '">' + dir + '</span>' +
+        '<span class="search-dir-item-count">' + d.count + ' 张</span>';
+
+      const cb = item.querySelector('input[type="checkbox"]');
+      cb.addEventListener('change', () => {
+        if (cb.checked) {
+          selectedDirSet.add(dir);
+        } else {
+          selectedDirSet.delete(dir);
+        }
+        checkAll.checked = selectedDirSet.size === indexedDirs.length;
+        renderDirItems();
+        updateDirCountBadge();
+      });
+
+      listEl.appendChild(item);
+    });
+
+    checkAll.checked = selectedDirSet.size === indexedDirs.length;
+    updateDirCountBadge();
+  }
+
+  // ── 加载已索引目录（展开下拉时调用）───────────────────────
+  async function loadDirs() {
+    const listEl = document.getElementById('search-dir-list');
+    if (!listEl) return;
+
+    // 缓存命中，直接渲染
+    if (indexedDirs.length > 0) {
+      renderDirItems();
+      return;
+    }
+
+    listEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:12px;text-align:center">加载中…</div>';
+
+    try {
+      const res = await fetch(API + '/api/index/indexed-dirs');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      indexedDirs = data.directories || [];
+
+      // 获取设置目录用于初始化 selectedDirSet
+      let configDirsLower = [];
+      try {
+        const sRes = await fetch(API + '/api/settings');
+        if (sRes.ok) {
+          const settings = await sRes.json();
+          configDirsLower = (settings.scan_directories || []).map(function(d) { return d.toLowerCase(); });
+        }
+      } catch (e) { /* 忽略 */ }
+
+      _rebuildSelectedDirSet(configDirsLower);
+
+      if (!indexedDirs.length) {
+        listEl.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:12px;text-align:center">暂无已索引的目录</div>';
+        return;
+      }
+
+      renderDirItems();
+    } catch (e) {
+      listEl.innerHTML = '<div style="padding:16px;color:var(--accent-red);font-size:12px;text-align:center">加载失败: ' + (e.message || e) + '</div>';
+    }
+  }
+
+  // ── 事件绑定 ───────────────────────────────────────────────
+  toggle.addEventListener('click', function(e) {
+    e.stopPropagation();
+    dirFilterOpen = !dirFilterOpen;
+    dropdown.style.display = dirFilterOpen ? '' : 'none';
+    toggle.classList.toggle('active', dirFilterOpen);
+    if (dirFilterOpen) loadDirs();
+  });
+
+  // 点击外部关闭
+  document.addEventListener('click', function(e) {
+    if (dirFilterOpen && !e.target.closest('.search-dir-filter')) {
+      dirFilterOpen = false;
+      dropdown.style.display = 'none';
+      toggle.classList.remove('active');
+    }
+  });
+
+  // 全选/取消全选
+  checkAll.addEventListener('change', function() {
+    if (checkAll.checked) {
+      selectedDirSet = new Set(indexedDirs.map(function(d) { return d.directory; }));
+    } else {
+      selectedDirSet = new Set();
+    }
+    renderDirItems();
+  });
+
+  // 初始后台加载（最多重试5次）
+  var _silentRetryCount = 0;
+  async function tryLoadSilent() {
+    await loadIndexedDirsSilent();
+    if (indexedDirs.length === 0 && _silentRetryCount < 5) {
+      _silentRetryCount++;
+      setTimeout(tryLoadSilent, 2000);
+    }
+  }
+  setTimeout(tryLoadSilent, 1000);
+}
+
+async function loadIndexedDirsSilent() {
+  try {
+    // 获取已索引目录
+    let indexedRes;
+    try {
+      indexedRes = await fetch(`${API}/api/index/indexed-dirs`);
+    } catch (e) {
+      console.error('loadIndexedDirsSilent: indexed-dirs fetch 失败', e);
+      return;
+    }
+    if (!indexedRes.ok) return;
+
+    const indexedData = await indexedRes.json();
+    indexedDirs = indexedData.directories || [];
+
+    // 获取设置中配置的目录（转小写用于比较）
+    let configDirsLower = [];
+    try {
+      const settingsRes = await fetch(`${API}/api/settings`);
+      if (settingsRes.ok) {
+        const settings = await settingsRes.json();
+        configDirsLower = (settings.scan_directories || []).map(d => d.toLowerCase());
+      }
+    } catch (e) {
+      console.warn('loadIndexedDirsSilent: 获取设置失败', e);
+    }
+
+    if (indexedDirs.length > 0) {
+      _rebuildSelectedDirSet(configDirsLower);
+
+      document.getElementById('search-dir-filter').style.display = '';
+      updateDirCountBadge();
+    }
+  } catch (e) {
+    console.error('loadIndexedDirsSilent 失败:', e);
+  }
+}
+
+/**
+ * 根据 configDirsLower 和当前 indexedDirs 重建 selectedDirSet
+ * 规则：已索引且在配置目录下的 → 选中；都没有匹配的 → 全选（回退）
+ */
+function _rebuildSelectedDirSet(configDirsLower) {
+  const newSelected = new Set();
+  if (configDirsLower.length > 0 && indexedDirs.length > 0) {
+    indexedDirs.forEach(d => {
+      const dirLower = d.directory.toLowerCase().replace(/\\/g, '/');
+      const matched = configDirsLower.some(cfg => {
+        const cfgNorm = cfg.replace(/\\/g, '/');
+        return dirLower === cfgNorm || dirLower.startsWith(cfgNorm + '/');
+      });
+      if (matched) newSelected.add(d.directory);
+    });
+    // 如果配置目录都还没索引（全是新添加的），回退到全选已索引目录
+    if (newSelected.size === 0) {
+      indexedDirs.forEach(d => newSelected.add(d.directory));
+    }
+  } else {
+    // 没有配置目录：全选已索引目录
+    indexedDirs.forEach(d => newSelected.add(d.directory));
+  }
+  selectedDirSet = newSelected;
+}
+
+function updateDirCountBadge() {
+  const badge = document.getElementById('search-dir-count');
+  if (!selectedDirSet || selectedDirSet.size === indexedDirs.length) {
+    badge.textContent = indexedDirs.length > 0 ? '全部' : '';
+  } else {
+    badge.textContent = selectedDirSet.size > 0 ? selectedDirSet.size : '';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  提示词卡片（快捷搜索）
 // ══════════════════════════════════════════════════════════════════
 function initTipCards() {
@@ -497,4 +727,113 @@ function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024*1024) return `${(bytes/1024).toFixed(1)} KB`;
   return `${(bytes/(1024*1024)).toFixed(1)} MB`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  索引进行中 — 搜索遮罩（保存设置自动触发索引时使用）
+// ══════════════════════════════════════════════════════════════════
+
+/**
+ * 显示搜索遮罩并开始轮询进度，直到索引完成
+ * @param {string} label - 正在索引的目录名提示
+ */
+function showIndexingBlock(label) {
+  _indexingBlockActive = true;
+  // 记录遮罩启动时间，避免在后台线程还未切换状态时就提前关闭
+  const startedAt = Date.now();
+  const MIN_WATCH_MS = 3000; // 至少观察 3 秒再允许因 idle/completed 退出
+
+  const block  = document.getElementById('indexing-search-block');
+  const title  = document.getElementById('isb-title');
+  const sub    = document.getElementById('isb-subtitle');
+  const fill   = document.getElementById('isb-prog-fill');
+  const pct    = document.getElementById('isb-prog-pct');
+  const stopBtn= document.getElementById('isb-stop-btn');
+
+  title.textContent = `正在为「${label}」建立索引…`;
+  sub.textContent   = '索引完成后即可开始搜索';
+  fill.style.width  = '0%';
+  pct.textContent   = '0%';
+  block.style.display = '';
+  if (stopBtn) stopBtn.style.display = '';
+
+  // 停止按钮
+  if (stopBtn) {
+    const newBtn = stopBtn.cloneNode(true); // 移除旧事件
+    stopBtn.parentNode.replaceChild(newBtn, stopBtn);
+    newBtn.addEventListener('click', async () => {
+      try {
+        await fetch(`${API}/api/index/stop`, { method: 'POST' });
+        newBtn.style.display = 'none';
+        sub.textContent = '正在停止索引…';
+      } catch { /* 静默忽略 */ }
+    });
+  }
+
+  // 禁用搜索输入
+  _setSearchDisabled(true);
+
+  if (_indexingBlockTimer) clearInterval(_indexingBlockTimer);
+  _indexingBlockTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`${API}/api/index/progress`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const p = data.progress_pct || 0;
+      fill.style.width = `${p}%`;
+      pct.textContent  = `${Math.round(p)}%`;
+
+      const s = data.status || 'idle';
+      const labels = {
+        scanning: '扫描文件中…',
+        indexing: `索引中 ${data.processed_files || 0}/${data.total_files || 0}`,
+        saving:   '保存索引数据…',
+        completed:'索引完成！',
+        error:    `错误: ${data.error_msg || '未知'}`,
+        idle:     '就绪',
+      };
+      sub.textContent = labels[s] || sub.textContent;
+
+      // 只有 completed 或 error 才结束；idle 需等 MIN_WATCH_MS 后才允许退出
+      // 避免后台线程尚未启动时 idle 状态导致遮罩立刻消失
+      const elapsed = Date.now() - startedAt;
+      const shouldExit =
+        s === 'completed' ||
+        s === 'error' ||
+        (s === 'idle' && elapsed > MIN_WATCH_MS);
+
+      if (shouldExit && _indexingBlockActive) {
+        // 先停止轮询、标记非活跃，防止 800ms 内再次触发
+        _indexingBlockActive = false;
+        clearInterval(_indexingBlockTimer);
+        _indexingBlockTimer = null;
+        if (s === 'completed' || s === 'idle') {
+          fill.style.width = '100%';
+          pct.textContent  = '100%';
+        }
+        // 延迟 800ms 后隐藏，让用户看到完成状态
+        setTimeout(() => hideIndexingBlock(), 800);
+      }
+    } catch { /* 静默忽略 */ }
+  }, 1000);
+}
+
+function hideIndexingBlock() {
+  _indexingBlockActive = false;
+  if (_indexingBlockTimer) { clearInterval(_indexingBlockTimer); _indexingBlockTimer = null; }
+  const block = document.getElementById('indexing-search-block');
+  block.style.display = 'none';
+  const stopBtn = document.getElementById('isb-stop-btn');
+  if (stopBtn) stopBtn.style.display = '';
+  _setSearchDisabled(false);
+  // 刷新目录筛选器
+  indexedDirs = [];
+  loadIndexedDirsSilent();
+}
+
+function _setSearchDisabled(disabled) {
+  const input   = document.getElementById('search-input');
+  const btnSrch = document.getElementById('btn-search');
+  if (input)   { input.disabled   = disabled; input.placeholder = disabled ? '索引建立中，请稍候…' : '输入任何描述，例如「猫」「合同」「海边日落」…'; }
+  if (btnSrch) { btnSrch.disabled = disabled; }
 }

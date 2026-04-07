@@ -91,6 +91,10 @@ async def search(req: SearchRequest) -> SearchResponse:
     # 确保引擎已加载
     clip_engine.load()
 
+    # top_n = 0 表示不限制数量
+    unlimited = (req.top_n == 0)
+    effective_top_n = req.top_n if req.top_n > 0 else 999999
+
     clip_results = []
     ocr_results = []
 
@@ -98,24 +102,43 @@ async def search(req: SearchRequest) -> SearchResponse:
     if req.mode in (SearchMode.HYBRID, SearchMode.CLIP_ONLY):
         try:
             query_vec = clip_engine.encode_text(query)
-            clip_results = faiss_store.search(query_vec, top_k=req.top_n * 2)
+            clip_results = faiss_store.search(query_vec, top_k=effective_top_n)
         except Exception as e:
             logger.error(f"CLIP 检索失败: {e}")
 
     # ── OCR 文字检索 ─────────────────────────────────────────────
     if req.mode in (SearchMode.HYBRID, SearchMode.OCR_ONLY):
         try:
-            ocr_results = text_index.search(query, top_k=req.top_n * 2)
+            ocr_results = text_index.search(query, top_k=effective_top_n)
         except Exception as e:
             logger.error(f"文字检索失败: {e}")
 
-    # ── 融合排序 ─────────────────────────────────────────────────
+    # ── 融合排序（不限制时不截断） ──────────────────────────────
+    fuse_top_n = effective_top_n
     if req.mode == SearchMode.CLIP_ONLY:
-        fused = fusion.fuse_clip_only(clip_results, top_n=req.top_n)
+        fused = fusion.fuse_clip_only(clip_results, top_n=fuse_top_n)
     elif req.mode == SearchMode.OCR_ONLY:
-        fused = fusion.fuse_ocr_only(ocr_results, top_n=req.top_n)
+        fused = fusion.fuse_ocr_only(ocr_results, top_n=fuse_top_n)
     else:
-        fused = fusion.fuse(clip_results, ocr_results, top_n=req.top_n)
+        fused = fusion.fuse(clip_results, ocr_results, top_n=fuse_top_n)
+
+    # ── 目录过滤 ─────────────────────────────────────────────────
+    # directories 有值时按目录过滤；空列表 = 不返回任何结果；None = 搜索全部
+    if req.directories is not None:
+        logger.debug(f"搜索目录过滤: directories={req.directories}")
+        if not req.directories:
+            # 空列表 → 直接返回空结果
+            elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
+            return SearchResponse(query=query, results=[], total=0, elapsed_ms=elapsed_ms)
+        # 将指定目录统一为小写绝对路径，用于前缀匹配
+        allowed_roots = [str(Path(d).resolve()).lower() for d in req.directories]
+        filtered = []
+        for item in fused:
+            p_lower = str(Path(item["path"]).resolve()).lower()
+            if any(p_lower.startswith(root) for root in allowed_roots):
+                filtered.append(item)
+        # 不限制时返回全部过滤结果，否则取 top_n
+        fused = filtered if unlimited else filtered[:req.top_n]
 
     # ── 构建结果列表 ─────────────────────────────────────────────
     result_paths = [item["path"] for item in fused]

@@ -74,7 +74,9 @@ class SearchFusion:
                 })
 
         results.sort(key=lambda x: x["score"], reverse=True)
-        return results[:top_n]
+        if top_n > 0:
+            return results[:top_n]
+        return results
 
     def fuse_clip_only(
         self,

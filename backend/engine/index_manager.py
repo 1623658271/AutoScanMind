@@ -180,6 +180,8 @@ class IndexManager:
                 return False
 
         self.scanner.reset_stop()
+        # 记录当前正在索引的目录（前端可用于恢复进度和提示）
+        self._set_status(IndexStatus.IDLE, indexing_directories=directories)
         self._thread = threading.Thread(
             target=self._index_worker,
             args=(directories, full_rebuild, ocr_enabled),
@@ -279,6 +281,7 @@ class IndexManager:
                     total_files=0,
                     processed_files=0,
                     progress_pct=100.0,
+                    indexing_directories=[],
                 )
                 self._last_update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 logger.success("无需更新，索引已是最新状态")
@@ -303,7 +306,7 @@ class IndexManager:
             for i in range(0, total, CLIP_BATCH_SIZE):
                 if self.scanner.is_stopped:
                     logger.info("索引任务已被用户中止")
-                    self._set_status(IndexStatus.IDLE)
+                    self._set_status(IndexStatus.IDLE, indexing_directories=[])
                     return
 
                 batch_paths = to_process[i : i + CLIP_BATCH_SIZE]
@@ -376,9 +379,10 @@ class IndexManager:
                 processed_files=total,
                 progress_pct=100.0,
                 current_file="",
+                indexing_directories=[],
             )
             logger.success(f"索引构建完成！共处理 {total} 张图片，索引总量: {self.faiss.total}")
 
         except Exception as e:
             logger.exception(f"索引任务异常: {e}")
-            self._set_status(IndexStatus.ERROR, error_msg=str(e))
+            self._set_status(IndexStatus.ERROR, error_msg=str(e), indexing_directories=[])

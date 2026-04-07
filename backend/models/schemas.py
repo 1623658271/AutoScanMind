@@ -28,9 +28,10 @@ class SearchMode(str, Enum):
 # ── 搜索相关 ──────────────────────────────────────────────────────
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500, description="搜索关键词")
-    top_n: int = Field(default=30, ge=1, le=200, description="返回结果数量")
+    top_n: int = Field(default=0, ge=0, le=5000, description="返回结果数量（0=不限制）")
     mode: SearchMode = Field(default=SearchMode.HYBRID, description="搜索模式")
     alpha: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="CLIP 权重（覆盖全局设置）")
+    directories: Optional[List[str]] = Field(default=None, description="搜索范围限制（指定目录列表，为空则搜索全部）")
 
 
 class SearchResultItem(BaseModel):
@@ -63,6 +64,7 @@ class IndexProgressInfo(BaseModel):
     error_msg: str = ""
     indexed_count: int = 0          # 当前已索引图片总数
     last_update_time: str = ""      # 上次完成索引的时间（ISO 格式）
+    indexing_directories: List[str] = []  # 当前正在索引的目录列表（idle/completed 时为空）
 
     @property
     def progress_percent(self) -> float:
@@ -81,7 +83,7 @@ class AppSettings(BaseModel):
     scan_directories: List[str] = Field(default_factory=list, description="扫描目录列表")
     full_disk_scan: bool = Field(default=False, description="是否扫描整个磁盘")
     alpha: float = Field(default=0.6, ge=0.0, le=1.0, description="CLIP 融合权重")
-    top_n: int = Field(default=30, ge=1, le=200, description="默认返回结果数")
+    top_n: int = Field(default=0, ge=0, le=5000, description="默认返回结果数（0=不限制）")
     ocr_enabled: bool = Field(default=True, description="是否启用 OCR 识别")
     auto_index_on_start: bool = Field(default=False, description="启动时自动索引")
     exclude_dirs: List[str] = Field(default_factory=list, description="扫描时排除的目录名")

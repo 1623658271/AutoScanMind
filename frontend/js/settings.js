@@ -28,10 +28,24 @@ const btnOpenPurge    = document.getElementById('btn-open-purge');
 const btnClosePurge   = document.getElementById('btn-close-purge');
 const purgeModal      = document.getElementById('purge-modal');
 const purgeBackdrop   = document.getElementById('purge-backdrop');
-const btnOpenIndexMgr = document.getElementById('btn-open-index-mgr');
-const btnCloseIndexMgr= document.getElementById('btn-close-index-mgr');
-const indexMgrModal   = document.getElementById('index-mgr-modal');
-const indexMgrBackdrop= document.getElementById('index-mgr-backdrop');
+const btnOpenIndexMgr   = document.getElementById('btn-open-index-mgr');
+const btnCloseIndexMgr  = document.getElementById('btn-close-index-mgr');
+const indexMgrModal     = document.getElementById('index-mgr-modal');
+const indexMgrBackdrop  = document.getElementById('index-mgr-backdrop');
+const indexMgrDirInput  = document.getElementById('index-mgr-dir-input');
+const indexMgrBtnBrowse = document.getElementById('index-mgr-btn-browse');
+const indexMgrBtnAddQueue = document.getElementById('index-mgr-btn-add-queue');
+const indexMgrBtnScan   = document.getElementById('index-mgr-btn-scan');
+const indexMgrQueueList = document.getElementById('index-mgr-queue-list');
+const indexMgrQueueFooter = document.getElementById('index-mgr-queue-footer');
+const indexMgrScanProg  = document.getElementById('index-mgr-scan-progress');
+const indexMgrProgFill  = document.getElementById('index-mgr-prog-fill');
+const indexMgrProgTxt   = document.getElementById('index-mgr-prog-txt');
+const indexMgrProgStatus= document.getElementById('index-mgr-prog-status');
+
+let _indexMgrScanTimer  = null;  // 弹窗内进度轮询定时器
+let _indexMgrQueue      = [];    // 增量索引任务队列（路径字符串数组）
+let _indexMgrScanLabel  = '';    // 当前正在索引的目录提示标签
 
 // ══════════════════════════════════════════════════════════════════
 //  初始化
@@ -58,6 +72,10 @@ document.addEventListener('DOMContentLoaded', () => {
   btnOpenIndexMgr.addEventListener('click', openIndexMgrModal);
   btnCloseIndexMgr.addEventListener('click', closeIndexMgrModal);
   indexMgrBackdrop.addEventListener('click', closeIndexMgrModal);
+  indexMgrBtnBrowse.addEventListener('click', indexMgrBrowseFolder);
+  indexMgrBtnAddQueue.addEventListener('click', indexMgrAddToQueue);
+  indexMgrBtnScan.addEventListener('click', indexMgrStartScan);
+  indexMgrDirInput.addEventListener('keydown', e => { if (e.key === 'Enter') indexMgrAddToQueue(); });
   initIndexMgrResize();
 });
 
@@ -129,16 +147,116 @@ async function saveSettings() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     });
+    if (!res.ok) {
+      _settingsToast(`保存失败 (HTTP ${res.status})`, 'error');
+      return;
+    }
     const data = await res.json();
     if (data.ok) {
-      showToast('保存成功！', 'success');
+      _settingsToast('保存成功！', 'success');
       currentSettings = settings;
+      closeSettings();
+
+      // ── 检测是否有目录尚未建立索引，若有则自动触发扫描 ──
+      await autoIndexUnindexedDirs(dirs);
+
     } else {
-      showToast(data.message || '保存失败', 'error');
+      _settingsToast(data.message || '保存失败', 'error');
     }
   } catch (e) {
-    showToast('保存失败：' + e.message, 'error');
+    console.error('saveSettings 失败:', e);
+    _settingsToast('保存失败：' + e.message, 'error');
   }
+}
+
+/**
+ * 检查 dirs 中哪些目录还没有索引，若有则自动启动索引扫描
+ * 并在主界面展示索引进行中遮罩，完成后隐藏并刷新搜索目录
+ *
+ * 注意：indexed-dirs 返回的是图片文件的父目录，可能比配置扫描根目录更深。
+ * 因此判断"是否已索引"需用路径前缀包含：配置目录下任意子目录有索引即视为已索引。
+ *
+ * 需求2：若目录已在索引管理中有索引 → 显示主界面遮罩轮询进度即可（不重启扫描）
+ *        若目录尚未索引 → 启动新的增量扫描并显示遮罩
+ */
+async function autoIndexUnindexedDirs(dirs) {
+  if (!dirs || !dirs.length) {
+    _refreshDirFilter();
+    return;
+  }
+
+  try {
+    // 获取当前已索引目录列表（每个图片文件所在父目录）
+    const res = await fetch(`${API}/api/index/indexed-dirs`).catch(() => null);
+    // indexedPrefixes: 所有已索引目录的小写路径，带尾部分隔符以防前缀误判
+    const indexedPrefixes = [];
+    if (res && res.ok) {
+      const data = await res.json();
+      (data.directories || []).forEach(d => {
+        const p = d.directory.toLowerCase().replace(/\\/g, '/');
+        indexedPrefixes.push(p.endsWith('/') ? p : p + '/');
+      });
+    }
+
+    /**
+     * 判断某个配置目录是否"已有索引"：
+     * 条件：indexedPrefixes 中存在某项以该目录路径为前缀
+     * 即 indexedDir.startsWith(configDir/) ← 说明 configDir 下有已索引的子目录
+     */
+    function _isIndexed(configDir) {
+      const normalized = configDir.toLowerCase().replace(/\\/g, '/');
+      const prefix = normalized.endsWith('/') ? normalized : normalized + '/';
+      // 已索引目录以 configDir 开头 → configDir 下有索引
+      return indexedPrefixes.some(p => p.startsWith(prefix) || p === prefix);
+    }
+
+    // 分类：已有索引 vs 尚未索引
+    const alreadyIndexed = dirs.filter(d => _isIndexed(d));
+    const unindexed = dirs.filter(d => !_isIndexed(d));
+
+    if (!unindexed.length && !alreadyIndexed.length) {
+      // 无任何目录，直接刷新
+      _refreshDirFilter();
+      return;
+    }
+
+    if (!unindexed.length) {
+      // 所有目录已有索引，无需扫描，直接刷新筛选器
+      _refreshDirFilter();
+      return;
+    }
+
+    // 有未索引目录 → 启动扫描
+    const startRes = await fetch(`${API}/api/index/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ directories: unindexed, full_rebuild: false }),
+    }).catch(() => null);
+
+    if (!startRes || !startRes.ok) {
+      _refreshDirFilter();
+      return;
+    }
+    const startData = await startRes.json();
+    if (!startData.ok) {
+      // 已有扫描在运行或无需更新，直接刷新
+      _refreshDirFilter();
+      return;
+    }
+
+    // 成功启动 → 显示搜索遮罩，轮询进度
+    const label = unindexed.length === 1 ? unindexed[0] : `${unindexed.length} 个目录`;
+    showIndexingBlock(label);
+
+  } catch (e) {
+    console.error('autoIndexUnindexedDirs 失败:', e);
+    _refreshDirFilter();
+  }
+}
+
+function _refreshDirFilter() {
+  if (typeof indexedDirs !== 'undefined') indexedDirs = [];
+  if (typeof loadIndexedDirsSilent === 'function') loadIndexedDirsSilent();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -183,14 +301,14 @@ async function addDirectory() {
   if (!path) {
     try {
       const res = await fetch(`${API}/api/files/pick-folder`);
-      if (!res.ok) { showToast('无法打开目录选择', 'error'); return; }
+      if (!res.ok) { _settingsToast('无法打开目录选择', 'error'); return; }
       const data = await res.json();
-      if (data.error) { showToast(data.error, 'error'); return; }
+      if (data.error) { _settingsToast(data.error, 'error'); return; }
       path = (data.path || '').trim();
       if (!path) return; // 用户取消了选择
       dirInput.value = path;
     } catch {
-      showToast('无法连接到后端服务', 'error');
+      _settingsToast('无法连接到后端服务', 'error');
       return;
     }
   }
@@ -209,12 +327,12 @@ async function addDirectory() {
       const dirs = getDisplayedDirs();
       if (!dirs.includes(path)) dirs.push(path);
       renderDirList(dirs);
-      showToast('目录已添加', 'success');
+      _settingsToast('目录已添加', 'success');
     } else {
-      showToast(data.message || '目录添加失败', 'error');
+      _settingsToast(data.message || '目录添加失败', 'error');
     }
   } catch {
-    showToast('无法连接到后端服务', 'error');
+    _settingsToast('无法连接到后端服务', 'error');
   }
 }
 
@@ -266,12 +384,246 @@ function openIndexMgrModal() {
   const content = indexMgrModal.querySelector('.purge-content');
   content.style.width = '';
   content.style.height = '';
+  // 重置输入和队列
+  indexMgrDirInput.value = '';
+  _indexMgrQueue = [];
+  _renderIndexMgrQueue();
+  indexMgrProgFill.style.width = '0%';
+  indexMgrProgTxt.textContent = '0%';
+  indexMgrProgStatus.textContent = '准备中…';
+  indexMgrScanProg.style.display = 'none';
+  indexMgrBtnScan.disabled = false;
   indexMgrModal.style.display = '';
   loadIndexMgrDirs();
+
+  // 检查后端是否正在索引，是则恢复进度显示
+  _resumeIndexMgrProgressIfNeeded();
 }
 
 function closeIndexMgrModal() {
+  // 不停止轮询（后台索引仍在继续），只隐藏弹窗
+  // 轮询在完成/停止/出错时自动停止
   indexMgrModal.style.display = 'none';
+}
+
+/** 打开弹窗时，若后端正在索引则恢复进度轮询 */
+async function _resumeIndexMgrProgressIfNeeded() {
+  try {
+    const res = await fetch(`${API}/api/index/progress`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const status = data.status || 'idle';
+    const activeStatuses = ['scanning', 'indexing', 'saving'];
+
+    if (activeStatuses.includes(status)) {
+      // 正在索引 → 显示进度条并恢复轮询
+      const dirs = data.indexing_directories || [];
+      _indexMgrScanLabel = dirs.length === 1 ? dirs[0].split(/[\\/]/).pop() : `${dirs.length} 个目录`;
+      indexMgrScanProg.style.display = '';
+      indexMgrBtnScan.disabled = true;
+      // 立即更新一次进度
+      indexMgrProgFill.style.width = `${data.progress_pct || 0}%`;
+      indexMgrProgTxt.textContent = `${Math.round(data.progress_pct || 0)}%`;
+      const statusLabels = {
+        scanning: '扫描文件中…',
+        indexing: `索引中 ${data.processed_files || 0}/${data.total_files || 0}`,
+        saving:   '保存索引…',
+      };
+      indexMgrProgStatus.textContent = statusLabels[status] || status;
+      startIndexMgrProgressPoll();
+    }
+  } catch { /* 静默忽略 */ }
+}
+
+// ── 队列管理 ─────────────────────────────────────────────────────
+
+/** 渲染队列列表 UI */
+function _renderIndexMgrQueue() {
+  if (!_indexMgrQueue.length) {
+    indexMgrQueueList.style.display = 'none';
+    indexMgrQueueFooter.style.display = 'none';
+    return;
+  }
+  indexMgrQueueList.style.display = '';
+  indexMgrQueueFooter.style.display = '';
+  indexMgrQueueList.innerHTML = '';
+  _indexMgrQueue.forEach((dir, idx) => {
+    const item = document.createElement('div');
+    item.className = 'index-mgr-queue-item';
+    item.innerHTML = `
+      <svg class="qi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+      </svg>
+      <span class="qi-path" title="${escapeHtml(dir)}">${escapeHtml(dir)}</span>
+      <button class="qi-remove" data-idx="${idx}" title="移除">✕</button>
+    `;
+    item.querySelector('.qi-remove').addEventListener('click', function() {
+      const i = parseInt(this.getAttribute('data-idx'));
+      _indexMgrQueue.splice(i, 1);
+      _renderIndexMgrQueue();
+    });
+    indexMgrQueueList.appendChild(item);
+  });
+}
+
+/** 添加路径到队列 */
+async function indexMgrAddToQueue() {
+  let path = indexMgrDirInput.value.trim();
+  if (!path) {
+    // 输入框为空时调用目录选择
+    try {
+      const res = await fetch(`${API}/api/files/pick-folder`);
+      if (!res.ok) { _settingsToast('无法打开目录选择', 'error'); return; }
+      const data = await res.json();
+      if (data.error) { _settingsToast(data.error, 'error'); return; }
+      path = (data.path || '').trim();
+      if (!path) return;
+      indexMgrDirInput.value = path;
+    } catch {
+      _settingsToast('无法连接到后端服务', 'error');
+      return;
+    }
+  }
+  // 去重
+  if (_indexMgrQueue.includes(path)) {
+    _settingsToast('该路径已在队列中', 'info');
+    return;
+  }
+  _indexMgrQueue.push(path);
+  indexMgrDirInput.value = '';
+  _renderIndexMgrQueue();
+  _settingsToast(`已添加到队列：${path.split(/[\\/]/).pop()}`, 'success');
+}
+
+// 浏览文件夹（在索引管理弹窗内）
+async function indexMgrBrowseFolder() {
+  try {
+    const res = await fetch(`${API}/api/files/pick-folder`);
+    if (!res.ok) { _settingsToast('无法打开目录选择', 'error'); return; }
+    const data = await res.json();
+    if (data.error) { _settingsToast(data.error, 'error'); return; }
+    const path = (data.path || '').trim();
+    if (path) indexMgrDirInput.value = path;
+  } catch {
+    _settingsToast('无法连接到后端服务', 'error');
+  }
+}
+
+// 开始增量索引（处理队列中的所有目录）
+async function indexMgrStartScan() {
+  // 如果队列为空但输入框有内容，先加入队列
+  if (!_indexMgrQueue.length) {
+    const path = indexMgrDirInput.value.trim();
+    if (path) {
+      _indexMgrQueue.push(path);
+      _renderIndexMgrQueue();
+    } else {
+      _settingsToast('请先添加需要索引的文件夹路径', 'info');
+      indexMgrDirInput.focus();
+      return;
+    }
+  }
+
+  const dirs = [..._indexMgrQueue];
+
+  // 禁用按钮，防止重复提交
+  indexMgrBtnScan.disabled = true;
+
+  try {
+    const r = await fetch(`${API}/api/index/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ directories: dirs, full_rebuild: false }),
+    });
+    const result = await r.json();
+    if (!result.ok) {
+      _settingsToast(result.message || '启动索引失败', 'error');
+      indexMgrBtnScan.disabled = false;
+      return;
+    }
+
+    // 显示进度条并开始轮询
+    indexMgrScanProg.style.display = '';
+    const label = dirs.length === 1 ? dirs[0].split(/[\\/]/).pop() : `${dirs.length} 个目录`;
+    _indexMgrScanLabel = label;
+    _settingsToast(`正在为「${label}」建立索引…`, 'success');
+    startIndexMgrProgressPoll();
+    _bindImgrStopBtn();
+  } catch {
+    _settingsToast('启动索引失败，请检查后端服务', 'error');
+    indexMgrBtnScan.disabled = false;
+  }
+}
+
+// 索引管理弹窗内进度轮询
+function startIndexMgrProgressPoll() {
+  if (_indexMgrScanTimer) clearInterval(_indexMgrScanTimer);
+  _bindImgrStopBtn();
+  _indexMgrScanTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`${API}/api/index/progress`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const pct = data.progress_pct || 0;
+      const status = data.status || 'idle';
+
+      indexMgrProgFill.style.width = `${pct}%`;
+      indexMgrProgTxt.textContent = `${Math.round(pct)}%`;
+
+      const statusLabels = {
+        scanning: '扫描文件中…',
+        indexing: `索引中 ${data.processed_files || 0}/${data.total_files || 0}`,
+        saving:   '保存索引…',
+        completed:'索引完成 ✓',
+        error:    `错误: ${data.error_msg || '未知'}`,
+        idle:     '就绪',
+      };
+      indexMgrProgStatus.textContent = statusLabels[status] || status;
+
+      // 隐藏停止按钮（完成/停止/出错时）
+      const stopBtn = document.getElementById('imsp-stop-btn');
+      if (stopBtn && (status === 'completed' || status === 'error' || status === 'idle')) {
+        stopBtn.style.display = 'none';
+      }
+
+      // 完成或出错时停止轮询，恢复按钮
+      if (status === 'completed' || status === 'error' || status === 'idle') {
+        clearInterval(_indexMgrScanTimer);
+        _indexMgrScanTimer = null;
+        indexMgrBtnScan.disabled = false;
+
+        if (status === 'completed' && _indexMgrScanLabel) {
+          _settingsToast(`「${_indexMgrScanLabel}」索引完成`, 'success');
+        } else if (status === 'idle') {
+          _settingsToast(`「${_indexMgrScanLabel}」索引已停止`, 'info');
+        }
+
+        // 刷新已索引目录列表
+        setTimeout(() => {
+          loadIndexMgrDirs();
+          // 同步主界面的目录筛选器
+          if (typeof indexedDirs !== 'undefined') indexedDirs = [];
+          if (typeof loadIndexedDirsSilent === 'function') loadIndexedDirsSilent();
+        }, 800);
+      }
+    } catch { /* 静默忽略 */ }
+  }, 1000);
+}
+
+/** 绑定索引管理弹窗停止按钮事件 */
+function _bindImgrStopBtn() {
+  const stopBtn = document.getElementById('imsp-stop-btn');
+  if (!stopBtn) return;
+  stopBtn.style.display = '';
+  const newBtn = stopBtn.cloneNode(true);
+  stopBtn.parentNode.replaceChild(newBtn, stopBtn);
+  newBtn.addEventListener('click', async () => {
+    try {
+      await fetch(`${API}/api/index/stop`, { method: 'POST' });
+      newBtn.style.display = 'none';
+      indexMgrProgStatus.textContent = '正在停止索引…';
+    } catch { /* 静默忽略 */ }
+  });
 }
 
 async function loadIndexMgrDirs() {
@@ -315,21 +667,17 @@ async function loadIndexMgrDirs() {
         </div>
       `;
 
-      // 增量索引
+      // 增量索引（将该目录加入队列并立即开始）
       item.querySelector('.index-mgr-btn-incremental').addEventListener('click', async function() {
         const dir = this.getAttribute('data-dir');
-        try {
-          const r = await fetch(`${API}/api/index/start`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ directories: [dir], full_rebuild: false }),
-          });
-          const result = await r.json();
-          showToast(result.message, result.ok ? 'success' : 'info');
-          closeIndexMgrModal();
-        } catch {
-          showToast('启动索引失败', 'error');
+        // 加入队列（去重）
+        if (!_indexMgrQueue.includes(dir)) {
+          _indexMgrQueue.push(dir);
+          _renderIndexMgrQueue();
         }
+        // 滚动到顶部让用户看到队列
+        indexMgrQueueList.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        _settingsToast(`已添加到队列：${dir.split(/[\\/]/).pop()}`, 'success');
       });
 
       // 重建索引
@@ -343,10 +691,10 @@ async function loadIndexMgrDirs() {
             body: JSON.stringify({ directories: [dir], full_rebuild: true }),
           });
           const result = await r.json();
-          showToast(result.message, result.ok ? 'success' : 'info');
+          _settingsToast(result.message, result.ok ? 'success' : 'info');
           closeIndexMgrModal();
         } catch {
-          showToast('启动重建失败', 'error');
+          _settingsToast('启动重建失败', 'error');
         }
       });
 
@@ -452,10 +800,10 @@ async function loadPurgeDirs() {
             body: JSON.stringify({ directory: dir }),
           });
           const result = await r.json();
-          showToast(result.message, result.ok ? 'success' : 'info');
+          _settingsToast(result.message, result.ok ? 'success' : 'info');
           setTimeout(() => loadPurgeDirs(), 500);
         } catch {
-          showToast('清理失败', 'error');
+          _settingsToast('清理失败', 'error');
         }
       });
       container.appendChild(item);
@@ -553,11 +901,8 @@ function escapeHtml(s) {
 function escapePath(s) {
   return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 }
-function showToast(msg, type='info') {
-  if (typeof window.showToast === 'function') {
-    window.showToast(msg, type);
-    return;
-  }
+// settings.js 内部 toast 辅助（避免与 app.js 全局 showToast 冲突）
+function _settingsToast(msg, type='info') {
   let c = document.querySelector('.toast-container');
   if (!c) { c = document.createElement('div'); c.className='toast-container'; document.body.appendChild(c); }
   const t = document.createElement('div');

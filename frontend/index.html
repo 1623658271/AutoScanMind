@@ -71,7 +71,7 @@
           <button class="search-btn" id="btn-search">搜索</button>
         </div>
 
-        <!-- 搜索模式选择 -->
+        <!-- 搜索模式 + 目录范围 -->
         <div class="search-meta">
           <div class="mode-tabs">
             <button class="mode-tab active" data-mode="hybrid">🔀 融合</button>
@@ -79,6 +79,28 @@
             <button class="mode-tab" data-mode="ocr">📝 文字</button>
           </div>
           <span id="result-count" class="result-count"></span>
+        </div>
+
+        <!-- 搜索目录筛选器 -->
+        <div class="search-dir-filter" id="search-dir-filter" style="display:none">
+          <button class="search-dir-toggle" id="search-dir-toggle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+            </svg>
+            <span>搜索范围</span>
+            <span id="search-dir-count" class="search-dir-count"></span>
+          </button>
+          <div class="search-dir-dropdown" id="search-dir-dropdown" style="display:none">
+            <div class="search-dir-dropdown-header">
+              <label class="search-dir-checkall">
+                <input type="checkbox" id="search-dir-checkall" checked />
+                <span>全选</span>
+              </label>
+            </div>
+            <div class="search-dir-dropdown-body" id="search-dir-list">
+              <!-- 动态填充 -->
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -240,12 +262,90 @@
         <h3>📋 索引管理</h3>
         <span class="hint">对单个目录进行增量索引或重建索引，避免全量重建</span>
       </div>
+
+      <!-- 增量索引任务队列区域 -->
+      <div class="index-mgr-add-section">
+        <div class="index-mgr-add-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            <line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>
+          </svg>
+          添加增量索引任务
+        </div>
+        <!-- 输入行 -->
+        <div class="index-mgr-add-row">
+          <input type="text" id="index-mgr-dir-input" class="index-mgr-dir-input" placeholder="输入或粘贴文件夹路径…" />
+          <button class="btn-browse" id="index-mgr-btn-browse" title="浏览文件夹">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+            浏览
+          </button>
+          <button class="btn-browse" id="index-mgr-btn-add-queue" title="添加到队列">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+            </svg>
+            添加
+          </button>
+        </div>
+        <!-- 任务队列列表 -->
+        <div id="index-mgr-queue-list" class="index-mgr-queue-list" style="display:none"></div>
+        <!-- 开始增量索引按钮 -->
+        <div class="index-mgr-queue-footer" id="index-mgr-queue-footer" style="display:none">
+          <button class="btn-start-scan" id="index-mgr-btn-scan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            开始增量索引
+          </button>
+        </div>
+        <!-- 扫描进度（仅扫描时显示）-->
+        <div class="index-mgr-scan-progress" id="index-mgr-scan-progress" style="display:none">
+          <div class="imsp-bar-bg">
+            <div class="imsp-bar-fill" id="index-mgr-prog-fill"></div>
+          </div>
+          <span class="imsp-txt" id="index-mgr-prog-txt">0%</span>
+          <span class="imsp-status" id="index-mgr-prog-status">准备中…</span>
+          <button class="imsp-stop-btn" id="imsp-stop-btn" title="停止索引">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11">
+              <rect x="6" y="6" width="12" height="12" rx="1"/>
+            </svg>
+            停止
+          </button>
+        </div>
+      </div>
+
+      <!-- 已索引目录标题 -->
+      <div class="index-mgr-list-header">已索引目录</div>
       <div class="purge-body" id="index-mgr-dirs-list">
         <!-- 动态填充 -->
       </div>
       <div class="purge-footer">
         <button class="btn-outline" id="btn-close-index-mgr">关闭</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ══ 索引进行中 — 搜索遮罩 ══════════════════════════════════════ -->
+  <div id="indexing-search-block" class="indexing-search-block" style="display:none">
+    <div class="isb-inner glass">
+      <div class="isb-spinner"></div>
+      <div class="isb-text">
+        <strong id="isb-title">正在建立索引，请稍候…</strong>
+        <span id="isb-subtitle">索引完成后即可开始搜索</span>
+      </div>
+      <div class="isb-progress-wrap">
+        <div class="isb-prog-bar-bg">
+          <div class="isb-prog-bar-fill" id="isb-prog-fill"></div>
+        </div>
+        <span class="isb-prog-pct" id="isb-prog-pct">0%</span>
+      </div>
+      <button class="isb-stop-btn" id="isb-stop-btn" title="停止索引">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+          <rect x="6" y="6" width="12" height="12" rx="1"/>
+        </svg>
+        停止索引
+      </button>
     </div>
   </div>
 
@@ -298,7 +398,7 @@
     </div>
   </div>
 
-  <script src="js/app.js?v=5"></script>
-  <script src="js/settings.js?v=9"></script>
+  <script src="js/app.js?v=22"></script>
+  <script src="js/settings.js?v=16"></script>
 </body>
 </html>
