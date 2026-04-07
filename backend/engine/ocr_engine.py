@@ -15,9 +15,11 @@ if str(ROOT) not in sys.path:
 
 from config import OCR_LANG, OCR_USE_GPU
 
-# PaddlePaddle C++ 推理引擎无法处理含中文/特殊字符的路径（如 C:\Users\浪客飞\.paddleocr\），
-# 因此使用项目内纯英文路径存放模型，初始化时显式指定模型目录。
-_PADDLEOCR_MODEL_DIR = ROOT / "backend" / "models" / "paddleocr"
+# PaddlePaddle C++ inference engine cannot handle paths with CJK/special chars
+# (e.g. C:\Users\<CJK>\.paddleocr\), so we use pure-ASCII project-local paths.
+# When frozen (PyInstaller), ROOT points to _MEIPASS, so models come from exe dir.
+_EXE_DIR = Path(sys.executable).parent.resolve() if getattr(sys, "frozen", False) else ROOT
+_PADDLEOCR_MODEL_DIR = _EXE_DIR / "backend" / "models" / "paddleocr"
 _PADDLEOCR_DET_DIR = str(_PADDLEOCR_MODEL_DIR / "det")
 _PADDLEOCR_REC_DIR = str(_PADDLEOCR_MODEL_DIR / "rec")
 _PADDLEOCR_CLS_DIR = str(_PADDLEOCR_MODEL_DIR / "cls")

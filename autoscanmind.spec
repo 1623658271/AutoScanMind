@@ -1,7 +1,6 @@
-; AutoScanMind PyInstaller 规格文件
-; 使用方式：pyinstaller autoscanmind.spec
-
-; 自动处理 CLIP / PaddleOCR / FAISS 等大型依赖的 binaries 和 datas
+# -*- mode: python ; coding: utf-8 -*-
+# AutoScanMind PyInstaller spec file
+# Usage: pyinstaller autoscanmind.spec
 
 block_cipher = None
 
@@ -14,16 +13,18 @@ a = Analysis(
     pathex=[str(ROOT)],
     binaries=[],
     datas=[
-        # 前端资源
+        # Frontend assets (CSS, JS, HTML) - bundled into _MEIPASS
         (str(ROOT / "frontend"), "frontend"),
-        # data 目录占位（运行时生成）
-        (str(ROOT / "data" / ".gitkeep"), "data"),
     ],
     hiddenimports=[
-        # FastAPI / Starlette
+        # FastAPI / Starlette / Uvicorn
         "starlette",
         "starlette.staticfiles",
+        "starlette.responses",
+        "starlette.routing",
         "fastapi",
+        "fastapi.responses",
+        "fastapi.routing",
         "uvicorn",
         "uvicorn.logging",
         "uvicorn.loops",
@@ -31,31 +32,60 @@ a = Analysis(
         "uvicorn.protocols",
         "uvicorn.protocols.http",
         "uvicorn.protocols.http.auto",
-        # transformers / CLIP
+        "uvicorn.protocols.websockets",
+        "uvicorn.protocols.websockets.auto",
+        "uvicorn.lifespan",
+        "uvicorn.lifespan.on",
+        # transformers / CLIP / torch
         "transformers",
         "transformers.modeling_utils",
         "transformers.models.clip",
+        "transformers.models.clip.modeling_clip",
+        "torch",
+        "torch._C",
+        "torch.utils.data",
         # faiss
         "faiss",
-        # paddleocr
+        # paddleocr / paddlepaddle
         "paddleocr",
-        "paddlepaddle",
-        # webview
+        "paddle",
+        "paddle.fluid",
+        # pywebview
         "webview",
-        # 其他
+        "webview.platforms",
+        "webview.platforms.winforms",
+        "webview.platforms.edgechromium",
+        "webview.platforms.cef",
+        "webview.platforms.gtk",
+        "webview.platforms.cocoa",
+        "webview.platforms.qt",
+        # PIL
         "PIL",
         "PIL.Image",
+        "PIL.ImageOps",
+        # Others
         "numpy",
         "sqlite3",
         "rank_bm25",
-        "watchdog",
         "loguru",
-        "aiofiles",
+        "pydantic",
+        # json (for settings)
+        "json",
+        "httpx",
+        "anyio._backends._asyncio",
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "scipy", "IPython", "notebook"],
+    excludes=[
+        "tkinter",
+        "matplotlib",
+        "scipy",
+        "IPython",
+        "notebook",
+        "pytest",
+        "setuptools",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -73,14 +103,14 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    console=False,          # 不显示控制台窗口
+    upx=False,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,              # TODO: 替换为 .ico 图标路径
+    icon=None,
 )
 
 coll = COLLECT(
@@ -89,7 +119,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name="AutoScanMind",
 )

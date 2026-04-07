@@ -3,71 +3,101 @@ chcp 65001 >nul
 setlocal EnableDelayedExpansion
 
 echo.
-echo  ╔══════════════════════════════════════════╗
-echo  ║      AutoScanMind  打包脚本              ║
-echo  ║      使用 PyInstaller 打包为 .exe        ║
-echo  ╚══════════════════════════════════════════╝
+echo  ========================================================
+echo        AutoScanMind  Build Script
+echo        PyInstaller -^> .exe (single-folder mode)
+echo  ========================================================
 echo.
 
-:: ── 检查 Python ──────────────────────────────────────────────────
+:: ── Check Python ──────────────────────────────────────────
 where python >nul 2>&1
 if errorlevel 1 (
-    echo [错误] 未找到 Python，请安装 Python 3.10+ 并添加到 PATH
+    echo [ERROR] Python not found. Install Python 3.10+ and add to PATH.
     pause & exit /b 1
 )
+for /f "tokens=2 delims= " %%v in ('python --version 2^>^&1') do set PYVER=%%v
+echo [INFO] Python: %PYVER%
 
-:: ── 检查虚拟环境 ─────────────────────────────────────────────────
-if exist "venv\Scripts\activate.bat" (
-    echo [信息] 激活虚拟环境 venv\...
+:: ── Detect & activate venv ────────────────────────────────
+if exist ".venv\Scripts\activate.bat" (
+    echo [INFO] Activating virtual environment .venv\...
+    call .venv\Scripts\activate.bat
+) else if exist "venv\Scripts\activate.bat" (
+    echo [INFO] Activating virtual environment venv\...
     call venv\Scripts\activate.bat
 ) else (
-    echo [警告] 未找到虚拟环境，使用全局 Python
-    echo         建议先运行：python -m venv venv ^&^& venv\Scripts\activate ^&^& pip install -r requirements.txt
+    echo [WARN] No virtual environment found, using global Python.
+    echo        Recommend: python -m venv .venv ^&^& .venv\Scripts\activate ^&^& pip install -r requirements.txt
 )
 
-:: ── 检查 PyInstaller ──────────────────────────────────────────────
-python -c "import PyInstaller" >nul 2>&1
+:: ── Check PyInstaller ─────────────────────────────────────
+python -c "import PyInstaller; print(PyInstaller.__version__)" >nul 2>&1
 if errorlevel 1 (
-    echo [信息] 安装 PyInstaller...
+    echo [INFO] Installing PyInstaller...
     pip install pyinstaller==6.6.0
+    if errorlevel 1 (
+        echo [ERROR] Failed to install PyInstaller.
+        pause & exit /b 1
+    )
 )
 
-:: ── 清理旧构建产物 ────────────────────────────────────────────────
-echo [信息] 清理旧构建产物...
-if exist build   rmdir /s /q build
-if exist dist    rmdir /s /q dist
+:: ── Clean old build artifacts ─────────────────────────────
+echo.
+echo [INFO] Cleaning old build artifacts...
+if exist build    rmdir /s /q build
+if exist dist     rmdir /s /q dist
+if exist __pycache__ rmdir /s /q __pycache__
 
-:: ── 执行打包 ─────────────────────────────────────────────────────
-echo [信息] 开始打包（这可能需要几分钟）...
+:: ── Build ────────────────────────────────────────────────
+echo.
+echo [INFO] Starting PyInstaller build...
+echo [INFO] This may take several minutes, please wait...
 echo.
 pyinstaller autoscanmind.spec --clean --noconfirm
 
-:: ── 检查结果 ─────────────────────────────────────────────────────
 if errorlevel 1 (
     echo.
-    echo [错误] 打包失败！请查看上方错误信息
+    echo [ERROR] Build failed! Check the error messages above.
     pause & exit /b 1
 )
 
-:: ── 拷贝运行时配置 ────────────────────────────────────────────────
+:: ── Copy runtime resources ───────────────────────────────
 echo.
-echo [信息] 拷贝运行时资源...
-if not exist "dist\AutoScanMind\data"     mkdir "dist\AutoScanMind\data"
+echo [INFO] Copying runtime resources...
 
-:: ── 打包完成 ─────────────────────────────────────────────────────
+:: Create data directory
+if not exist "dist\AutoScanMind\data" mkdir "dist\AutoScanMind\data"
+
+:: Copy PaddleOCR models (required at runtime)
+if not exist "dist\AutoScanMind\backend\models\paddleocr" (
+    echo [INFO] Copying PaddleOCR models...
+    xcopy "backend\models\paddleocr" "dist\AutoScanMind\backend\models\paddleocr\" /E /I /Q >nul
+)
+
+:: Copy CLIP model if it exists locally
+if exist "backend\models\chinese-clip-vit-large-patch14" (
+    if not exist "dist\AutoScanMind\backend\models\chinese-clip-vit-large-patch14" (
+        echo [INFO] Copying CLIP model (this may take a while)...
+        xcopy "backend\models\chinese-clip-vit-large-patch14" "dist\AutoScanMind\backend\models\chinese-clip-vit-large-patch14\" /E /I /Q >nul
+    )
+) else (
+    echo [WARN] CLIP model not found locally. First run will need to download it.
+)
+
+:: ── Done ─────────────────────────────────────────────────
 echo.
-echo  ╔══════════════════════════════════════════╗
-echo  ║  打包成功！                              ║
-echo  ║  输出目录：dist\AutoScanMind\            ║
-echo  ║  运行文件：dist\AutoScanMind\AutoScanMind.exe ║
-echo  ╚══════════════════════════════════════════╝
+echo  ========================================================
+echo        Build Successful!
+echo  ========================================================
 echo.
-echo 提示：dist\AutoScanMind\ 目录可直接压缩分发
-echo       首次运行会自动下载 CLIP 模型（约 600MB）
+echo  Output directory : dist\AutoScanMind\
+echo  Executable       : dist\AutoScanMind\AutoScanMind.exe
+echo.
+echo  Note: The dist\AutoScanMind\ folder can be zipped
+echo        and distributed to other machines.
 echo.
 
-:: 询问是否立即运行
-set /p RUN="是否立即运行 AutoScanMind? [y/N] "
+set /p RUN="Run AutoScanMind now? [y/N] "
 if /i "!RUN!"=="y" (
     start "" "dist\AutoScanMind\AutoScanMind.exe"
 )
