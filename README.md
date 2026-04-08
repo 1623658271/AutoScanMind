@@ -193,14 +193,6 @@ CLIP模型下载地址：https://huggingface.co/OFA-Sys/chinese-clip-vit-large-p
 python main.py
 ```
 
-### 打包为 .exe
-
-```bash
-build.bat
-```
-
-打包产物在 `dist/AutoScanMind/` 目录，可直接分发。
-
 ## 项目结构
 
 ```
@@ -208,8 +200,8 @@ autoscanmind/
 ├── main.py                 # 程序入口 (pywebview + FastAPI)
 ├── config.py               # 全局配置
 ├── requirements.txt        # Python 依赖
-├── build.bat               # PyInstaller 打包脚本
-├── autoscanmind.spec       # PyInstaller 配置
+├── autoscanmind.spec       # PyInstaller 打包配置
+├── run.bat                 # 开发运行脚本
 ├── backend/
 │   ├── app.py              # FastAPI 应用
 │   ├── api/                # API 路由层

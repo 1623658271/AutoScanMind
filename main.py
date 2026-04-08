@@ -11,15 +11,33 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
+from pathlib import Path
 
 # ── 解决 OpenMP 重复链接问题（torch / paddleocr 各自带了一份 libiomp5md.dll）──
 # 必须在 import torch / paddleocr 之前设置
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
-import sys
+# ── 注册所有 DLL 子目录（PyInstaller 打包时必须手动补全）─────────────────────
+# PyInstaller 只把 _MEIPASS 根目录加入 DLL 搜索路径，torch/paddle/faiss 等库
+# 把自己的 DLL 放在子目录里，需要通过 os.add_dll_directory() 显式注册。
+if getattr(sys, "frozen", False):
+    _meipass = Path(sys._MEIPASS)
+    _dll_subdirs = [
+        # torch（核心 DLL 都在 lib 子目录）
+        _meipass / "torch" / "lib",
+        _meipass / "torch" / "bin",
+        # paddle（DLL 在 libs 子目录）
+        _meipass / "paddle" / "libs",
+        # faiss（openblas / flang / libomp 等）
+        _meipass / "faiss_cpu.libs",
+    ]
+    for _d in _dll_subdirs:
+        if _d.is_dir():
+            os.add_dll_directory(str(_d))
+
 import threading
 import time
-from pathlib import Path
 
 from loguru import logger
 
@@ -50,20 +68,43 @@ logger.add(
 # ══════════════════════════════════════════════════════════════════
 #  后端服务（FastAPI + uvicorn）
 # ══════════════════════════════════════════════════════════════════
+
+# 用于在后端线程崩溃时通知主线程
+_backend_error: Exception | None = None
+
+
 def start_backend() -> None:
     """在当前线程中启动 uvicorn 服务（应在守护线程中调用）。"""
-    import uvicorn
-    from backend.app import create_app
+    global _backend_error
+    try:
+        import uvicorn
+        from backend.app import create_app
 
-    app = create_app()
-    logger.info(f"启动 FastAPI 服务：{API_BASE_URL}")
-    uvicorn.run(
-        app,
-        host=API_HOST,
-        port=API_PORT,
-        log_level="warning",
-        access_log=False,
-    )
+        app = create_app()
+        logger.info(f"启动 FastAPI 服务：{API_BASE_URL}")
+        uvicorn.run(
+            app,
+            host=API_HOST,
+            port=API_PORT,
+            log_level="warning",
+            access_log=False,
+        )
+    except Exception as e:
+        import traceback
+        _backend_error = e
+        # 写入 crash.log（放在 exe 旁边）
+        if getattr(sys, "frozen", False):
+            crash_log = Path(sys.executable).parent / "crash.log"
+        else:
+            crash_log = ROOT / "crash.log"
+        try:
+            with open(crash_log, "w", encoding="utf-8") as f:
+                f.write("=== Backend thread crashed ===\n")
+                f.write(traceback.format_exc())
+        except Exception:
+            pass
+        logger.critical(f"后端线程崩溃: {e}")
+        logger.critical(traceback.format_exc())
 
 
 def wait_for_backend(timeout: float = 10.0) -> bool:
@@ -155,7 +196,11 @@ def main() -> None:
 
     # 2. 等待服务就绪（仅 HTTP 层，模型在后台加载）
     logger.info("等待后端服务就绪…")
-    ready = wait_for_backend(timeout=10)
+    ready = wait_for_backend(timeout=15)
+    # 先检查是否有后端线程崩溃
+    if _backend_error is not None:
+        logger.error("后端服务启动失败（子线程异常），请查看 crash.log")
+        sys.exit(1)
     if not ready:
         logger.error("后端服务启动超时，退出")
         sys.exit(1)
@@ -173,4 +218,16 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        crash_log = Path(__file__).parent / "crash.log"
+        if getattr(sys, "frozen", False):
+            crash_log = Path(sys.executable).parent / "crash.log"
+        with open(crash_log, "w", encoding="utf-8") as f:
+            f.write(traceback.format_exc())
+        # Also print to stderr if console is available
+        print(f"FATAL: {e}", file=sys.stderr)
+        traceback.print_exc()
+        input("Press Enter to exit...")
