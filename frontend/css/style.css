@@ -1270,6 +1270,39 @@ input[type=range]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 5px rgba(56,18
 }
 .link-btn:hover { border-color: var(--accent-blue); }
 
+/* 设备选择器 */
+.device-select-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.device-select {
+  flex: 1;
+  background: var(--bg-layer2);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 8px 12px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition);
+}
+.device-select:hover,
+.device-select:focus {
+  border-color: var(--accent-blue);
+}
+.device-select option {
+  background: var(--bg-layer2);
+  color: var(--text-primary);
+}
+.device-status {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .settings-footer {
   padding: 16px 20px;
   border-top: 1px solid var(--glass-border);

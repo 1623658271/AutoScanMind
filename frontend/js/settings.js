@@ -23,6 +23,9 @@ const alphaVal        = document.getElementById('alpha-val');
 const ocrBar          = document.getElementById('ocr-bar');
 const ocrVal          = document.getElementById('ocr-val');
 const chkOcr          = document.getElementById('chk-ocr');
+const deviceSelect    = document.getElementById('device-select');
+const deviceStatus    = document.getElementById('device-status');
+const deviceHint      = document.getElementById('device-hint');
 const btnOpenDataDir  = document.getElementById('btn-open-data-dir');
 const btnOpenPurge    = document.getElementById('btn-open-purge');
 const btnClosePurge   = document.getElementById('btn-close-purge');
@@ -63,6 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
     openDataDir();
   });
+  // 设备选择
+  deviceSelect.addEventListener('change', onDeviceChange);
   // 索引清理弹窗
   btnOpenPurge.addEventListener('click', openPurgeModal);
   btnClosePurge.addEventListener('click', closePurgeModal);
@@ -105,7 +110,7 @@ async function loadSettings() {
     clearTimeout(timer);
     if (!res.ok) return;
     currentSettings = await res.json();
-    applySettingsToUI(currentSettings);
+    await applySettingsToUI(currentSettings);
   } catch (e) {
     if (e.name !== 'AbortError') {
       console.warn('加载设置失败:', e);
@@ -113,7 +118,7 @@ async function loadSettings() {
   }
 }
 
-function applySettingsToUI(s) {
+async function applySettingsToUI(s) {
   // 目录列表
   renderDirList(s.scan_directories || []);
 
@@ -128,6 +133,32 @@ function applySettingsToUI(s) {
 
   // OCR 开关
   chkOcr.checked = s.ocr_enabled !== false;
+
+  // 设备选择 - 先获取实际设备状态，如果设置与实际不符则修正显示
+  const savedDevice = s.device || 'cpu';
+  
+  try {
+    const res = await fetch(`${API}/api/settings/device-status`).catch(() => null);
+    if (res && res.ok) {
+      const status = await res.json();
+      const actualDevice = status.actual_device;
+      // 如果设置是 GPU 但实际是 CPU（CUDA 不可用），下拉框显示实际设备
+      if (savedDevice === 'cuda' && actualDevice === 'cpu') {
+        deviceSelect.value = 'cpu';
+        deviceHint.textContent = 'CUDA 不可用，已自动切换为 CPU';
+        deviceHint.style.color = '#ef4444';
+      } else {
+        deviceSelect.value = savedDevice;
+      }
+      updateDeviceStatusUI(savedDevice, actualDevice);
+    } else {
+      deviceSelect.value = savedDevice;
+      updateDeviceHint(savedDevice);
+    }
+  } catch (e) {
+    deviceSelect.value = savedDevice;
+    updateDeviceHint(savedDevice);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -136,6 +167,7 @@ function applySettingsToUI(s) {
 async function saveSettings() {
   const dirs = getDisplayedDirs();
   const alpha = parseInt(alphaSlider.value) / 100;
+  const device = deviceSelect.value;
 
   const settings = {
     scan_directories: dirs,
@@ -145,6 +177,7 @@ async function saveSettings() {
     ocr_enabled:      chkOcr.checked,
     auto_index_on_start: false,
     exclude_dirs:     [],
+    device:           device,
   };
 
   try {
@@ -159,7 +192,14 @@ async function saveSettings() {
     }
     const data = await res.json();
     if (data.ok) {
-      _settingsToast('保存成功！', 'success');
+      // 显示设备切换结果
+      if (data.message && data.message.includes('设备')) {
+        _settingsToast(data.message, 'success');
+        // 更新 UI 显示实际使用的设备
+        updateDeviceStatusFromMessage(data.message);
+      } else {
+        _settingsToast('保存成功！', 'success');
+      }
       currentSettings = settings;
       closeSettings();
 
@@ -263,6 +303,81 @@ async function autoIndexUnindexedDirs(dirs) {
 function _refreshDirFilter() {
   if (typeof indexedDirs !== 'undefined') indexedDirs = [];
   if (typeof loadIndexedDirsSilent === 'function') loadIndexedDirsSilent();
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  设备选择
+// ══════════════════════════════════════════════════════════════════
+function onDeviceChange() {
+  const device = deviceSelect.value;
+  updateDeviceHint(device);
+}
+
+function updateDeviceHint(device) {
+  const hints = {
+    cpu: '使用 CPU 推理，兼容性最好，但速度较慢',
+    cuda: '使用 NVIDIA GPU 加速，速度显著提升（需要 CUDA 驱动）',
+    auto: '自动检测：有 NVIDIA 显卡则使用 GPU，否则使用 CPU'
+  };
+  deviceHint.textContent = hints[device] || hints.cpu;
+  
+  // 显示当前实际使用的设备状态
+  updateDeviceStatusUI(device);
+}
+
+function updateDeviceStatusUI(device, actualDevice) {
+  /**
+   * 更新设备状态显示
+   * @param device: 用户选择的设备 (cpu/cuda/auto)
+   * @param actualDevice: 实际使用的设备 (可选，用于 auto 模式显示)
+   */
+  if (device === 'cuda') {
+    deviceStatus.textContent = '⚡ GPU 模式';
+    deviceStatus.style.color = '#4ade80';
+  } else if (device === 'auto') {
+    if (actualDevice === 'cuda') {
+      deviceStatus.textContent = '🔄 自动 → GPU';
+      deviceStatus.style.color = '#4ade80';
+    } else {
+      deviceStatus.textContent = '🔄 自动 → CPU';
+      deviceStatus.style.color = '#fbbf24';
+    }
+  } else {
+    deviceStatus.textContent = '💻 CPU 模式';
+    deviceStatus.style.color = '#94a3b8';
+  }
+}
+
+function updateDeviceStatusFromMessage(message) {
+  /**
+   * 从后端返回的消息中解析实际设备并更新 UI
+   * 消息格式: "设置已保存！设备已切换为 CPU/GPU（自动检测）"
+   */
+  const device = deviceSelect.value;
+  
+  if (message.includes('自动检测')) {
+    // auto 模式，解析实际使用的设备
+    const actualDevice = message.includes('GPU') || message.includes('CUDA') ? 'cuda' : 'cpu';
+    updateDeviceStatusUI(device, actualDevice);
+  } else if (message.includes('失败') || message.includes('不可用')) {
+    // 切换失败，将下拉框改回 CPU 并显示 CPU 模式
+    // 直接修改 value 并强制刷新 UI
+    deviceSelect.value = 'cpu';
+    // 强制刷新 select 的显示（WebView2 兼容）
+    const selectedOption = deviceSelect.querySelector('option[value="cpu"]');
+    if (selectedOption) {
+      selectedOption.selected = true;
+    }
+    // 触发 blur 再 focus 强制重绘
+    deviceSelect.blur();
+    
+    updateDeviceStatusUI('cpu', 'cpu');
+    deviceHint.textContent = 'CUDA 不可用，已自动切换为 CPU';
+    deviceHint.style.color = '#ef4444';
+  } else {
+    // 普通切换成功
+    updateDeviceStatusUI(device);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════

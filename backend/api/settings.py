@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config import SCAN_EXCLUDE_DIRS, SETTINGS_PATH
+from config import SCAN_EXCLUDE_DIRS, SETTINGS_PATH, set_clip_device
 from backend.models.schemas import AppSettings, OkResponse
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -57,11 +57,91 @@ async def get_settings() -> AppSettings:
     return get_settings_obj()
 
 
+@router.get("/device-status")
+async def get_device_status() -> dict:
+    """获取当前 CLIP 设备状态（实际使用的设备）。"""
+    try:
+        from backend.engine.clip_engine import CLIPEngine
+        clip = CLIPEngine()
+        actual_device = clip.get_device()
+        cuda_available = False
+        try:
+            import torch
+            cuda_available = torch.cuda.is_available()
+        except Exception:
+            pass
+        return {
+            "actual_device": actual_device,
+            "cuda_available": cuda_available,
+        }
+    except Exception as e:
+        logger.warning(f"获取设备状态失败: {e}")
+        return {"actual_device": "cpu", "cuda_available": False}
+
+
 @router.post("", response_model=OkResponse)
 async def update_settings(new_settings: AppSettings) -> OkResponse:
     """更新设置。"""
     try:
+        # 检查设备设置变更
+        old_settings = get_settings_obj()
+        device_result = None  # 设备切换结果
+        
+        # 获取当前实际设备状态
+        try:
+            from backend.engine.clip_engine import CLIPEngine
+            clip = CLIPEngine()
+            current_actual_device = clip.get_device()
+        except Exception:
+            current_actual_device = "cpu"
+        
+        # 需要切换设备的条件：
+        # 1. 设置变更了，或
+        # 2. 设置是 GPU/CUDA 但实际设备是 CPU（CUDA 不可用导致的回退）
+        new_device_value = new_settings.device.value if hasattr(new_settings.device, "value") else str(new_settings.device)
+        old_device_value = old_settings.device.value if hasattr(old_settings.device, "value") else str(old_settings.device)
+        need_switch = (
+            old_settings.device != new_settings.device or
+            (new_device_value in ("cuda", "gpu") and current_actual_device == "cpu")
+        )
+        logger.info(f"[DeviceCheck] old={old_device_value}, new={new_device_value}, actual={current_actual_device}, need_switch={need_switch}")
+        
+        if need_switch:
+            logger.info(f"设备设置变更: {old_settings.device} -> {new_settings.device} (实际当前: {current_actual_device})")
+            # 更新全局设备配置
+            set_clip_device(new_device_value)
+            # 通知 CLIP 引擎切换设备
+            try:
+                success = clip.set_device(new_device_value)
+                actual_device = clip.get_device()
+                device_result = {
+                    "success": success,
+                    "requested": new_device_value,
+                    "actual": actual_device,
+                }
+                if not success:
+                    logger.warning(f"设备切换失败: 请求 {new_device_value}, 实际 {actual_device}")
+            except Exception as e:
+                logger.warning(f"切换 CLIP 设备失败: {e}")
+                device_result = {"success": False, "error": str(e)}
+        
         save_settings_obj(new_settings)
+        
+        # 构造返回消息
+        if device_result:
+            if device_result.get("success"):
+                req = device_result["requested"]
+                act = device_result["actual"]
+                if req != act:
+                    # auto 模式回退
+                    msg = f"设置已保存！设备已切换为 {act.upper()}（自动检测）"
+                else:
+                    msg = f"设置已保存！设备已切换为 {act.upper()}"
+            else:
+                err = device_result.get("error", "未知错误")
+                msg = f"设置已保存，但设备切换失败: {err}"
+            return OkResponse(message=msg)
+        
         return OkResponse(message="设置已保存")
     except Exception as e:
         logger.error(f"保存设置失败: {e}")

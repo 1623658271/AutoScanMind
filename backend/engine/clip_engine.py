@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config import CLIP_BATCH_SIZE, CLIP_DEVICE, CLIP_MODEL_NAME
+from config import CLIP_BATCH_SIZE, CLIP_MODEL_NAME, get_clip_device
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -107,11 +107,58 @@ class CLIPEngine:
         if self._initialized:
             return
         self._initialized = True
-        self.device = torch.device(CLIP_DEVICE)
+        requested_device = get_clip_device()
+        # 验证设备可用性，如果不可用则回退到 CPU
+        if requested_device == "cuda" and not torch.cuda.is_available():
+            logger.warning(f"请求设备 {requested_device} 不可用，回退到 CPU")
+            self._device_name = "cpu"
+        else:
+            self._device_name = requested_device
+        self.device = torch.device(self._device_name)
         self.model = None
         self.processor = None
         self._feature_dim = 0
         logger.info(f"CLIPEngine 初始化，设备: {self.device}，模型: {CLIP_MODEL_NAME}")
+
+    def set_device(self, device_name: str) -> bool:
+        """
+        切换推理设备。
+        
+        Args:
+            device_name: "cpu", "cuda", 或 "auto"
+        
+        Returns:
+            True 表示切换成功，False 表示切换失败
+        """
+        # 处理 auto 模式
+        if device_name == "auto":
+            actual_device = "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info(f"自动检测设备: auto -> {actual_device}")
+            device_name = actual_device
+        
+        if device_name == self._device_name:
+            return True
+        
+        # 验证设备可用性
+        if device_name == "cuda" and not torch.cuda.is_available():
+            logger.error("CUDA 不可用，无法切换到 GPU")
+            return False
+        
+        logger.info(f"切换 CLIP 设备: {self._device_name} -> {device_name}")
+        self._device_name = device_name
+        self.device = torch.device(device_name)
+        
+        # 如果模型已加载，需要重新加载到新设备
+        if self.model is not None:
+            logger.info("重新加载模型到新设备...")
+            self.model = self.model.to(self.device)
+            logger.success(f"模型已切换到 {device_name}")
+        
+        return True
+
+    def get_device(self) -> str:
+        """获取当前设备名称。"""
+        return self._device_name
 
     @property
     def feature_dim(self) -> int:

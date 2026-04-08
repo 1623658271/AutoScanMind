@@ -79,6 +79,12 @@ class StartIndexRequest(BaseModel):
 
 
 # ── 设置相关 ──────────────────────────────────────────────────────
+class DeviceType(str, Enum):
+    CPU = "cpu"
+    CUDA = "cuda"
+    AUTO = "auto"  # 自动检测，优先 GPU
+
+
 class AppSettings(BaseModel):
     scan_directories: List[str] = Field(default_factory=list, description="扫描目录列表")
     full_disk_scan: bool = Field(default=False, description="是否扫描整个磁盘")
@@ -87,6 +93,7 @@ class AppSettings(BaseModel):
     ocr_enabled: bool = Field(default=True, description="是否启用 OCR 识别")
     auto_index_on_start: bool = Field(default=False, description="启动时自动索引")
     exclude_dirs: List[str] = Field(default_factory=list, description="扫描时排除的目录名")
+    device: DeviceType = Field(default=DeviceType.CPU, description="推理设备: cpu/cuda/auto")
 
 
 # ── 文件操作相关 ──────────────────────────────────────────────────

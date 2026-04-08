@@ -107,6 +107,7 @@
 |------|------|
 | 桌面 GUI | pywebview 5.x + HTML/CSS/JS |
 | 语义搜索 | Chinese-CLIP ViT-L/14 (本地模型) |
+| 推理框架 | PyTorch (CPU/GPU 自动切换) |
 | 向量索引 | FAISS (faiss-cpu) |
 | OCR 识别 | PaddleOCR (中英文) |
 | 文字检索 | BM25 (rank_bm25) |
@@ -158,7 +159,7 @@ git clone https://github.com/yourname/autoscanmind.git
 cd autoscanmind
 
 # 创建虚拟环境
-python -m venv venv
+python -m venv .venv
 venv\Scripts\activate
 
 # 安装依赖
@@ -187,11 +188,60 @@ PaddleOCR下载地址：https://www.paddleocr.ai/v2.10.0/ppocr/model_list.html
 
 CLIP模型下载地址：https://huggingface.co/OFA-Sys/chinese-clip-vit-large-patch14/tree/main
 
-### 首次运行
+### 启动方式
+
+#### 方式一：使用 run.bat（推荐）
+
+双击 `run.bat` 或在命令行执行：
 
 ```bash
+run.bat
+```
+
+此脚本会自动激活虚拟环境并启动程序。
+
+#### 方式二：手动启动
+
+```bash
+# 激活虚拟环境
+.venv\Scripts\activate
+
+# 启动程序
 python main.py
 ```
+
+---
+
+## GPU 加速支持
+
+AutoScanMind 支持使用 NVIDIA GPU 加速 CLIP 语义搜索，速度比 CPU 快 3-10 倍。
+
+### 硬件要求
+
+- NVIDIA 显卡（GTX 10 系列或更高，推荐 RTX 20/30/40 系列）
+- 显卡驱动已安装（建议最新版）
+
+### 安装 GPU 版 PyTorch
+
+默认安装的 PyTorch 为 CPU 版本。如需 GPU 加速，请替换为 CUDA 版本：
+
+```bash
+# 关闭程序后执行
+.venv\Scripts\python.exe -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+> **注意**：GPU 版 PyTorch 体积较大（约 2-3GB），下载可能需要较长时间。
+
+### 切换设备
+
+安装 GPU 版本后，在设置面板「🖥️ 推理设备」中选择：
+- **CPU**：兼容性最好，无需额外驱动
+- **GPU / CUDA**：使用 NVIDIA GPU 加速，速度显著提升
+- **自动检测**：优先使用 GPU，无 GPU 时自动回退到 CPU
+
+设备切换后保存设置即可生效，无需重启程序。
+
+---
 
 ## 项目结构
 
@@ -201,7 +251,7 @@ autoscanmind/
 ├── config.py               # 全局配置
 ├── requirements.txt        # Python 依赖
 ├── autoscanmind.spec       # PyInstaller 打包配置
-├── run.bat                 # 开发运行脚本
+├── run.bat                 # 启动脚本（自动激活环境并运行）
 ├── backend/
 │   ├── app.py              # FastAPI 应用
 │   ├── api/                # API 路由层
@@ -267,17 +317,28 @@ autoscanmind/
 
 ## 配置说明
 
+### 运行时设置（设置面板）
+
+以下配置可在程序内设置面板实时调整，无需修改代码：
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| 搜索范围 | 扫描目录列表 | `[]` |
+| 推理设备 | CPU / GPU / 自动检测 | `cpu` |
+| 融合权重 | CLIP 语义 vs OCR 文字比例 | `0.6` |
+| 结果数量 | 搜索返回上限 | `1000` |
+| OCR 开关 | 是否启用文字识别 | `开启` |
+
+### 高级配置
+
 编辑 `config.py` 可调整：
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `CLIP_MODEL_NAME` | CLIP 模型路径 | 本地 ViT-L/14 |
-| `CLIP_DEVICE` | 推理设备 | `"cpu"` |
 | `CLIP_BATCH_SIZE` | 批量推理大小 | `8` |
 | `FAISS_DIM` | 向量维度 | `768` (ViT-L) |
 | `FAISS_TOP_K` | FAISS 候选集大小 | `50` |
-| `DEFAULT_ALPHA` | CLIP 融合权重 | `0.6` |
-| `DEFAULT_TOP_N` | 搜索返回数量上限 | `1000` |
 | `SUPPORTED_EXTENSIONS` | 支持的图片格式 | jpg/png/bmp/webp/tiff/gif/heic |
 | `SCAN_EXCLUDE_DIRS` | 扫描排除的目录名 | Windows/System32/node_modules 等 |
 

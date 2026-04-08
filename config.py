@@ -2,8 +2,11 @@
 AutoScanMind - Global Configuration
 """
 from pathlib import Path
+import json
 import os
 import sys
+
+from loguru import logger
 
 # ── Detect if running inside PyInstaller bundle ────────────────
 # When frozen, sys.frozen=True and sys.executable points to the .exe
@@ -26,11 +29,47 @@ BASE_DIR = _BUNDLE_DIR
 DATA_DIR = _EXE_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+# ── Settings (必须在 CLIP 配置前定义) ─────────────────────────
+SETTINGS_PATH = DATA_DIR / "settings.json"
+
 # ── CLIP model config ─────────────────────────────────────────
 CLIP_MODEL_NAME = str(_EXE_DIR / "backend" / "models" / "chinese-clip-vit-large-patch14")
-CLIP_DEVICE = "cpu"
 CLIP_BATCH_SIZE = 8
 CLIP_IMAGE_SIZE = 224
+
+# 动态设备配置（可被设置覆盖）
+_CLIP_DEVICE_OVERRIDE = None
+
+def get_clip_device() -> str:
+    """获取当前 CLIP 设备，优先使用设置中的配置。"""
+    if _CLIP_DEVICE_OVERRIDE is not None:
+        return _CLIP_DEVICE_OVERRIDE
+    # 尝试从设置文件读取
+    try:
+        if SETTINGS_PATH.exists():
+            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+            device_setting = settings.get("device", "cpu")
+            if device_setting == "auto":
+                import torch
+                return "cuda" if torch.cuda.is_available() else "cpu"
+            return device_setting
+    except Exception as e:
+        logger.warning(f"读取设备设置失败: {e}")
+    return "cpu"
+
+def set_clip_device(device: str) -> None:
+    """设置 CLIP 设备（运行时切换）。"""
+    global _CLIP_DEVICE_OVERRIDE
+    if device == "auto":
+        import torch
+        _CLIP_DEVICE_OVERRIDE = "cuda" if torch.cuda.is_available() else "cpu"
+    else:
+        _CLIP_DEVICE_OVERRIDE = device
+    logger.info(f"CLIP 设备已设置为: {_CLIP_DEVICE_OVERRIDE}")
+
+# 向后兼容
+CLIP_DEVICE = get_clip_device()
 
 # ── FAISS index config ────────────────────────────────────────
 FAISS_INDEX_PATH = DATA_DIR / "faiss.index"
@@ -76,9 +115,6 @@ FRONTEND_DIR = _BUNDLE_DIR / "frontend"
 LOG_DIR = DATA_DIR / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_LEVEL = "INFO"
-
-# ── Settings ──────────────────────────────────────────────────
-SETTINGS_PATH = DATA_DIR / "settings.json"
 
 # ── Thumbnail cache ───────────────────────────────────────────
 THUMBNAIL_DIR = DATA_DIR / "thumbnails"

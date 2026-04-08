@@ -210,6 +210,20 @@
         </div>
       </section>
 
+      <!-- 推理设备 -->
+      <section class="settings-section">
+        <h4>🖥️ 推理设备</h4>
+        <div class="device-select-row">
+          <select id="device-select" class="device-select">
+            <option value="cpu">CPU（兼容性好）</option>
+            <option value="cuda">GPU / CUDA（需 NVIDIA 显卡）</option>
+            <option value="auto">自动检测（优先 GPU）</option>
+          </select>
+          <span id="device-status" class="device-status"></span>
+        </div>
+        <p class="hint" id="device-hint">使用 GPU 可显著加速 CLIP 语义搜索，但需要 NVIDIA 显卡和 CUDA 驱动</p>
+      </section>
+
       <!-- 融合权重 -->
       <section class="settings-section">
         <h4>⚖️ 融合权重</h4>
@@ -399,6 +413,6 @@
   </div>
 
   <script src="js/app.js?v=22"></script>
-  <script src="js/settings.js?v=22"></script>
+  <script src="js/settings.js?v=29"></script>
 </body>
 </html>
