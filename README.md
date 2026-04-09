@@ -156,7 +156,7 @@
 ```bash
 # 克隆项目
 git clone https://gitcode.com/roverfly/AutoScanMind.git
-cd autoscanmind
+cd AutoScanMind
 
 # 创建虚拟环境
 python -m venv .venv
