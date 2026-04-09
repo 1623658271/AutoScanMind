@@ -289,7 +289,7 @@ class CLIPEngine:
                 all_features.append(np.zeros((len(batch_paths), dim), dtype=np.float32))
                 continue
 
-            inputs = self.processor(images=images, return_tensors="pt", padding=True).to(self.device)
+            inputs = self.processor(images=images, return_tensors="pt").to(self.device)
             features = self.model.get_image_features(**inputs)
             features = features / features.norm(p=2, dim=-1, keepdim=True)
             features_np = features.cpu().numpy().astype(np.float32)
