@@ -155,7 +155,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/yourname/autoscanmind.git
+git clone https://gitcode.com/roverfly/AutoScanMind.git
 cd autoscanmind
 
 # 创建虚拟环境
