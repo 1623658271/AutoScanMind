@@ -89,7 +89,20 @@ async def search(req: SearchRequest) -> SearchResponse:
     fusion = SearchFusion(alpha=alpha)
 
     # 确保引擎已加载
-    clip_engine.load()
+    try:
+        clip_engine.load()
+    except FileNotFoundError as e:
+        logger.error(f"CLIP 模型缺失: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={"error_code": "MODEL_NOT_READY", "detail": str(e)},
+        )
+    except Exception as e:
+        logger.error(f"CLIP 模型加载失败: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={"error_code": "MODEL_NOT_READY", "detail": f"CLIP 模型加载失败: {e}"},
+        )
 
     # top_n = 0 表示不限制数量
     unlimited = (req.top_n == 0)

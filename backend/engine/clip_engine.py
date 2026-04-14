@@ -179,7 +179,7 @@ class CLIPEngine:
             is_local = Path(self._model_path).is_dir()
 
             if not is_local:
-                # ── 远程模型：检查缓存 + 按需下载（带进度条）─────────
+                # ── 远程模型：检查缓存，不存在则立即报错（避免 hf_hub_download 长时间阻塞）───
                 from huggingface_hub import try_to_load_from_cache
 
                 model_files = [
@@ -188,55 +188,36 @@ class CLIPEngine:
                     "model.safetensors",
                     "pytorch_model.bin",
                 ]
-                need_download = False
+                cached_files = []
                 for fname in model_files:
                     cache_info = try_to_load_from_cache(self._model_path, fname)
-                    if cache_info is None:
-                        need_download = True
-                        break
+                    if cache_info is not None:
+                        cached_files.append(fname)
 
-                if need_download:
-                    # ── 注入 requests hook 追踪下载进度 ────────────────
-                    original_get = requests.Session.get
-
-                    def _patched_get(self_session, url, **kwargs):
-                        resp = original_get(self_session, url, **kwargs)
-                        if resp.status_code == 200 and "content-length" in resp.headers:
-                            total = int(resp.headers["content-length"])
-                            fname = url.split("/")[-1].split("?")[0]
-                            if total > 1024 * 1024:  # 只追踪 >1MB
-                                _progress.begin(fname, total)
-                                original_iter_content = resp.iter_content
-
-                                def _tracked_iter_content(*a, **kw):
-                                    for chunk in original_iter_content(*a, **kw):
-                                        _progress.update(len(chunk))
-                                        yield chunk
-                                    _progress.finish()
-
-                                resp.iter_content = _tracked_iter_content
-                        return resp
-
-                    requests.Session.get = _patched_get
-
-                    try:
-                        from huggingface_hub import hf_hub_download
-
-                        logger.info("正在从 HuggingFace 下载模型...")
-                        for fname in model_files:
-                            try:
-                                hf_hub_download(self._model_path, fname, local_files_only=False)
-                            except Exception:
-                                pass
-                        logger.info("模型文件下载完成，正在加载到内存...")
-                    finally:
-                        requests.Session.get = original_get
+                if len(cached_files) < len(model_files):
+                    missing = set(model_files) - set(cached_files)
+                    raise FileNotFoundError(
+                        f"CLIP 模型文件缺失: {self._model_path}，"
+                        f"缺失文件: {missing}。"
+                        f"请将 chinese-clip-vit-large-patch14 模型文件夹放入 models/ 目录。"
+                    )
             else:
+                # 本地模型：检查必要文件是否存在
+                required = ["config.json", "preprocessor_config.json"]
+                has_model = any(
+                    Path(self._model_path).joinpath(f).exists()
+                    for f in ["pytorch_model.bin", "model.safetensors"]
+                )
+                if not has_model:
+                    raise FileNotFoundError(
+                        f"CLIP 模型目录存在但缺少模型文件: {self._model_path}。"
+                        f"请确保目录中包含 pytorch_model.bin 或 model.safetensors。"
+                    )
                 logger.info(f"使用本地模型: {self._model_path}")
 
             # ── 使用 AutoModel/AutoProcessor 自动适配 CLIP 变体 ──
-            self.processor = AutoProcessor.from_pretrained(self._model_path, local_files_only=is_local)
-            self.model = AutoModel.from_pretrained(self._model_path, local_files_only=is_local).to(self.device)
+            self.processor = AutoProcessor.from_pretrained(self._model_path, local_files_only=True)
+            self.model = AutoModel.from_pretrained(self._model_path, local_files_only=True).to(self.device)
             self.model.eval()
 
             # 自动检测特征维度
@@ -255,6 +236,9 @@ class CLIPEngine:
                 self._feature_dim = feat.shape[-1]
 
             logger.success(f"CLIP 模型加载完成，特征维度: {self._feature_dim}")
+        except FileNotFoundError:
+            # 模型缺失，不需要重试，直接抛出让上层返回 503
+            raise
         except Exception as e:
             logger.error(f"CLIP 模型加载失败: {e}")
             raise

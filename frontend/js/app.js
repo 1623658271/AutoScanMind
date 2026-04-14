@@ -109,7 +109,7 @@ async function doSearch() {
       body: JSON.stringify(body),
     });
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw res;  // 保留 Response 对象以便后续判断状态码
     const data = await res.json();
 
     clearResults();
@@ -141,7 +141,23 @@ async function doSearch() {
 
   } catch (err) {
     console.error('搜索失败:', err);
-    showToast('搜索失败，请检查后端服务是否启动', 'error');
+    if (err instanceof Response) {
+      // 后端有响应，根据状态码判断原因
+      if (err.status === 503) {
+        err.clone().json().then(body => {
+          if (body.error_code === 'MODEL_NOT_READY') {
+            showToast('模型未就绪: ' + (body.detail || '请检查模型文件是否已放置'), 'error');
+          } else {
+            showToast('搜索失败: ' + (body.detail || '服务暂不可用'), 'error');
+          }
+        }).catch(() => showToast('模型未就绪，请检查模型文件是否已放置', 'error'));
+      } else {
+        showToast('搜索失败，后端服务异常 (' + err.status + ')', 'error');
+      }
+    } else {
+      // 网络错误：无法连接后端
+      showToast('搜索失败，请检查后端服务是否启动', 'error');
+    }
     emptyState.style.display = '';
   } finally {
     loadingOverlay.style.display = 'none';
