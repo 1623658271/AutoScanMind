@@ -26,7 +26,7 @@ from backend.engine.faiss_store import FAISSStore
 from backend.engine.ocr_engine import OCREngine
 from backend.engine.scanner import FileScanner, compute_file_hash
 from backend.engine.text_index import TextIndex
-from backend.models.schemas import IndexProgressInfo, IndexStatus
+from backend.pretrained.schemas import IndexProgressInfo, IndexStatus
 
 
 def _count_images_in_dir(

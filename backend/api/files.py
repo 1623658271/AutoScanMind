@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.models.schemas import OkResponse, OpenFileRequest, OpenFolderRequest
+from backend.pretrained.schemas import OkResponse, OpenFileRequest, OpenFolderRequest
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 

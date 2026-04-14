@@ -26,7 +26,7 @@ from backend.engine.faiss_store import FAISSStore
 from backend.engine.fusion import SearchFusion
 from backend.engine.index_manager import IndexManager
 from backend.engine.text_index import TextIndex
-from backend.models.schemas import (
+from backend.pretrained.schemas import (
     IndexStatus,
     SearchMode,
     SearchRequest,

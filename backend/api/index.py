@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.engine.index_manager import IndexManager
-from backend.models.schemas import (
+from backend.pretrained.schemas import (
     IndexProgressInfo,
     OkResponse,
     StartIndexRequest,

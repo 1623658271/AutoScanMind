@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from config import SCAN_EXCLUDE_DIRS, SETTINGS_PATH, set_clip_device, set_clip_model_path, set_ocr_model_dir, _DEFAULT_CLIP_MODEL_NAME, _DEFAULT_OCR_MODEL_DIR
-from backend.models.schemas import AppSettings, OkResponse
+from backend.pretrained.schemas import AppSettings, OkResponse
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 

@@ -168,25 +168,7 @@ pip install -r requirements.txt
 
 ### 模型准备
 
-将以下模型文件放置到对应目录：
-
-```
-backend/models/
-├── chinese-clip-vit-large-patch14/   # Chinese-CLIP ViT-L/14 模型
-│   ├── config.json
-│   ├── pytorch_model.bin (或 model.safetensors)
-│   └── ...
-└── paddleocr/                         # PaddleOCR 模型
-    ├── det/                           # 检测模型
-    ├── rec/                           # 识别模型
-    └── cls/                           # 方向分类模型
-```
-
-首次运行时 PaddleOCR 会自动下载模型到 `backend/models/paddleocr/` 目录。CLIP 模型需手动下载放置（约 1.2GB）。
-
-PaddleOCR下载地址：https://www.paddleocr.ai/v2.10.0/ppocr/model_list.html
-
-CLIP模型下载地址：https://huggingface.co/OFA-Sys/chinese-clip-vit-large-patch14/tree/main
+模型下载与放置方法详见下方「发行版使用教程」章节。开发模式下 CLIP 模型放入 `models/`，PaddleOCR 首次运行自动下载。
 
 ### 启动方式
 
@@ -316,7 +298,7 @@ autoscanmind/
 ├── main.py                 # 程序入口 (pywebview + FastAPI)
 ├── config.py               # 全局配置
 ├── requirements.txt        # Python 依赖
-├── autoscanmind.spec       # PyInstaller 打包配置
+├── AutoScanMind.spec       # PyInstaller 打包配置
 ├── run.bat                 # 启动脚本（自动激活环境并运行）
 ├── backend/
 │   ├── app.py              # FastAPI 应用
@@ -331,8 +313,11 @@ autoscanmind/
 │   │   ├── faiss_store.py  # FAISS 向量存储/检索
 │   │   ├── index_manager.py# 索引构建/管理
 │   │   └── metadata_db.py  # SQLite 元数据库
-│   ├── models/             # 本地模型文件
+│   ├── pretrained/           # 内嵌模型目录（打包时内嵌到 _internal/）
 │   └── static_files.py     # 前端静态文件服务（no-cache）
+├── models/                 # 用户模型目录（发行版中为 exe 同级的 models/）
+│   ├── chinese-clip-vit-large-patch14/  # CLIP 模型
+│   └── paddleocr/                          # OCR 模型
 ├── frontend/
 │   ├── index.html          # 主界面
 │   ├── css/style.css       # 玻璃拟态深色主题样式

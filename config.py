@@ -37,7 +37,7 @@ SETTINGS_PATH = DATA_DIR / "settings.json"
 # 优先从打包内嵌目录加载（_BUNDLE_DIR = _internal/）；
 # 开发时使用项目根目录或外部 models/；
 # 也可通过设置中的 clip_model_path 自定义
-_BUNDLED_CLIP_MODEL = str(_BUNDLE_DIR / "backend" / "models" / "chinese-clip-vit-large-patch14")
+_BUNDLED_CLIP_MODEL = str(_BUNDLE_DIR / "backend" / "pretrained" / "chinese-clip-vit-large-patch14")
 _DEV_CLIP_MODEL = str(Path(__file__).parent / "models" / "chinese-clip-vit-large-patch14")
 _EXE_MODULE_CLIP_MODEL = str(_EXE_DIR / "models" / "chinese-clip-vit-large-patch14")
 _DEFAULT_CLIP_MODEL_NAME = _BUNDLED_CLIP_MODEL if _FROZEN else _DEV_CLIP_MODEL
