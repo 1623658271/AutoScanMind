@@ -212,6 +212,72 @@ python main.py
 
 ---
 
+## 发行版使用教程
+
+> 发行版（`dist/AutoScanMind/`）为完整的 Windows 可执行文件，无需安装 Python 环境，可直接复制到任意 Windows 电脑运行。
+
+### 目录结构
+
+```
+dist/AutoScanMind/
+├── AutoScanMind.exe           # 主程序（双击运行）
+├── models/                   # 模型目录
+│   ├── README.txt             # 模型配置说明
+│   ├── chinese-clip-vit-large-patch14/   # ← CLIP 模型放这里
+│   └── paddleocr/                         # ← OCR 模型放这里（首次运行自动下载）
+└── _internal/                 # Python 运行环境（无需关心）
+```
+
+### 使用步骤
+
+#### 1. 下载模型文件
+
+发行版中已内嵌基础运行环境，首次使用需要手动放入 CLIP 模型：
+
+| 模型 | 下载地址 | 放置路径 |
+|------|---------|---------|
+| Chinese-CLIP ViT-L/14 | [HuggingFace](https://huggingface.co/OFA-Sys/chinese-clip-vit-large-patch14/tree/main) | `models/chinese-clip-vit-large-patch14/` |
+| PaddleOCR | 首次运行自动下载 | `models/paddleocr/` |
+
+CLIP 模型约 1.2GB，下载后将整个文件夹放入 `models/` 目录即可。
+
+#### 2. 运行程序
+
+直接双击 `AutoScanMind.exe`，程序会自动：
+
+- 创建 `data/` 目录（数据库、索引、日志）
+- 加载 CLIP 和 OCR 模型（约需 1-5 分钟）
+- 启动本地 Web 服务并弹出主界面
+
+> **提示**：首次加载模型较慢，后续启动会快很多。
+
+#### 3. 数据存储位置
+
+运行时所有数据均存储在程序所在目录内，**不污染系统目录**：
+
+| 文件夹 | 内容 |
+|--------|------|
+| `data/` | SQLite 数据库、FAISS 索引、用户设置 |
+| `data/logs/` | 运行日志 |
+| `data/thumbnails/` | 图片缩略图缓存 |
+
+#### 4. 迁移到其他电脑
+
+将整个 `dist/AutoScanMind/` 文件夹复制到目标电脑，放入 CLIP 模型，双击 `AutoScanMind.exe` 即可运行。**无需安装任何依赖。**
+
+#### 5. 常见问题
+
+**Q: 程序启动后报错"找不到 CLIP 模型"？**
+> 将 CLIP 模型文件夹（`chinese-clip-vit-large-patch14/`）放入 `models/` 目录。
+
+**Q: 提示缺少 WebView2？**
+> Windows 10/11 通常已自带 WebView2。如未安装，下载 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) 安装后重新运行。
+
+**Q: 启动后报错"端口被占用"？**
+> 说明已有 AutoScanMind 实例在运行，关闭后再启动即可。
+
+---
+
 ## GPU 加速支持
 
 AutoScanMind 支持使用 NVIDIA GPU 加速 CLIP 语义搜索，速度比 CPU 快 3-10 倍。

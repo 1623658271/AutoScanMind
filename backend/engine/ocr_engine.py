@@ -13,16 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config import OCR_LANG, OCR_USE_GPU
-
-# PaddlePaddle C++ inference engine cannot handle paths with CJK/special chars
-# (e.g. C:\Users\<CJK>\.paddleocr\), so we use pure-ASCII project-local paths.
-# When frozen (PyInstaller), ROOT points to _MEIPASS, so models come from exe dir.
-_EXE_DIR = Path(sys.executable).parent.resolve() if getattr(sys, "frozen", False) else ROOT
-_PADDLEOCR_MODEL_DIR = _EXE_DIR / "backend" / "models" / "paddleocr"
-_PADDLEOCR_DET_DIR = str(_PADDLEOCR_MODEL_DIR / "det")
-_PADDLEOCR_REC_DIR = str(_PADDLEOCR_MODEL_DIR / "rec")
-_PADDLEOCR_CLS_DIR = str(_PADDLEOCR_MODEL_DIR / "cls")
+from config import OCR_LANG, OCR_USE_GPU, get_ocr_model_dir
 
 
 class OCREngine:
@@ -47,7 +38,12 @@ class OCREngine:
         """加载 PaddleOCR 模型（首次调用时执行）。"""
         if self._ocr is not None:
             return
-        logger.info("正在加载 PaddleOCR 模型...")
+        # 每次加载时重新获取模型路径（支持动态切换）
+        model_dir = get_ocr_model_dir()
+        det_dir = str(Path(model_dir) / "det")
+        rec_dir = str(Path(model_dir) / "rec")
+        cls_dir = str(Path(model_dir) / "cls")
+        logger.info(f"正在加载 PaddleOCR 模型: {model_dir}")
         try:
             from paddleocr import PaddleOCR
             self._ocr = PaddleOCR(
@@ -55,9 +51,9 @@ class OCREngine:
                 lang=OCR_LANG,
                 use_gpu=OCR_USE_GPU,
                 show_log=False,
-                det_model_dir=_PADDLEOCR_DET_DIR,
-                rec_model_dir=_PADDLEOCR_REC_DIR,
-                cls_model_dir=_PADDLEOCR_CLS_DIR,
+                det_model_dir=det_dir,
+                rec_model_dir=rec_dir,
+                cls_model_dir=cls_dir,
             )
             logger.success("PaddleOCR 模型加载完成")
         except Exception as e:

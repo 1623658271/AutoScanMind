@@ -258,6 +258,56 @@
         <a href="#" id="btn-open-data-dir" class="link-btn">📂 打开数据目录</a>
       </section>
 
+      <!-- 模型路径 -->
+      <section class="settings-section">
+        <h4>🤖 AI 模型路径</h4>
+        <p class="hint">设置模型文件位置，支持用户自定义下载的模型</p>
+
+        <!-- CLIP 模型 -->
+        <div class="model-path-section">
+          <label class="model-path-label">
+            <span class="model-icon">🖼️</span>
+            <span>语义识别模型 (CLIP)</span>
+            <span class="model-status" id="clip-model-status"></span>
+          </label>
+          <div class="model-path-row">
+            <input type="text" id="clip-model-path" class="model-path-input" placeholder="使用默认路径" readonly />
+            <button class="btn-browse-model" id="btn-browse-clip-model" title="浏览">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+              浏览
+            </button>
+          </div>
+          <p class="model-path-hint" id="clip-model-hint">默认: backend/models/chinese-clip-vit-large-patch14</p>
+        </div>
+
+        <!-- OCR 模型 -->
+        <div class="model-path-section">
+          <label class="model-path-label">
+            <span class="model-icon">📝</span>
+            <span>文字识别模型 (OCR)</span>
+            <span class="model-status" id="ocr-model-status"></span>
+          </label>
+          <div class="model-path-row">
+            <input type="text" id="ocr-model-path" class="model-path-input" placeholder="使用默认路径" readonly />
+            <button class="btn-browse-model" id="btn-browse-ocr-model" title="浏览">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+              浏览
+            </button>
+          </div>
+          <p class="model-path-hint" id="ocr-model-hint">默认: backend/models/paddleocr</p>
+        </div>
+
+        <!-- 下载提示 -->
+        <div class="model-download-tip">
+          <p>💡 模型文件需要单独下载，请参考项目文档获取模型。</p>
+          <p>下载后将模型文件夹放入 <code>module/</code> 目录即可。</p>
+        </div>
+      </section>
+
     </div>
 
     <div class="settings-footer">
@@ -412,7 +462,7 @@
     </div>
   </div>
 
-  <script src="js/app.js?v=22"></script>
-  <script src="js/settings.js?v=29"></script>
+  <script src="js/app.js?v=23"></script>
+  <script src="js/settings.js?v=30"></script>
 </body>
 </html>

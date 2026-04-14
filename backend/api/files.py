@@ -85,6 +85,25 @@ async def list_drives():
 @router.get("/pick-folder")
 async def pick_folder():
     """弹出系统目录选择对话框，返回用户选择的目录路径。"""
+    path = await _pick_folder_impl()
+    if path:
+        return {"path": path}
+    return {"path": ""}
+
+
+async def _pick_folder_impl() -> str:
+    """内部实现：弹出系统目录选择对话框，返回用户选择的目录路径。"""
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _pick_folder_impl_sync)
+    except Exception as e:
+        logger.error(f"目录选择失败: {e}")
+        return ""
+
+
+def _pick_folder_impl_sync() -> str:
+    """同步实现：弹出系统目录选择对话框，返回用户选择的目录路径。"""
     import tkinter as tk
     from tkinter import filedialog
 
@@ -92,12 +111,10 @@ async def pick_folder():
         root = tk.Tk()
         root.withdraw()  # 隐藏主窗口
         root.attributes("-topmost", True)  # 置顶
-        selected = filedialog.askdirectory(title="选择要扫描的文件夹")
+        selected = filedialog.askdirectory(title="选择文件夹")
         root.destroy()
 
-        if selected:
-            return {"path": selected}
-        return {"path": ""}
+        return selected if selected else ""
     except Exception as e:
         logger.error(f"目录选择失败: {e}")
-        return {"path": "", "error": str(e)}
+        return ""

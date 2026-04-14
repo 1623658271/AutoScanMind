@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config import SCAN_EXCLUDE_DIRS, SETTINGS_PATH, set_clip_device
+from config import SCAN_EXCLUDE_DIRS, SETTINGS_PATH, set_clip_device, set_clip_model_path, set_ocr_model_dir, _DEFAULT_CLIP_MODEL_NAME, _DEFAULT_OCR_MODEL_DIR
 from backend.models.schemas import AppSettings, OkResponse
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -125,22 +125,81 @@ async def update_settings(new_settings: AppSettings) -> OkResponse:
                 logger.warning(f"切换 CLIP 设备失败: {e}")
                 device_result = {"success": False, "error": str(e)}
         
+        # 检查模型路径变更
+        new_clip_path = new_settings.clip_model_path
+        old_clip_path = old_settings.clip_model_path
+        clip_path_changed = new_clip_path != old_clip_path
+        
+        new_ocr_path = new_settings.ocr_model_path
+        old_ocr_path = old_settings.ocr_model_path
+        ocr_path_changed = new_ocr_path != old_ocr_path
+        
+        model_result = None
+        if clip_path_changed:
+            logger.info(f"CLIP 模型路径变更: {old_clip_path} -> {new_clip_path}")
+            set_clip_model_path(new_clip_path)
+            # 重新加载 CLIP 引擎以使用新模型
+            try:
+                from backend.engine.clip_engine import CLIPEngine
+                CLIPEngine._instance = None  # 重置单例，强制重新加载
+                clip_new = CLIPEngine()
+                clip_new.load()
+                model_result = {"clip": "ok", "path": new_clip_path}
+            except Exception as e:
+                logger.error(f"重新加载 CLIP 模型失败: {e}")
+                model_result = {"clip": "error", "error": str(e)}
+        
+        if ocr_path_changed:
+            logger.info(f"OCR 模型路径变更: {old_ocr_path} -> {new_ocr_path}")
+            set_ocr_model_dir(new_ocr_path)
+            # 重新加载 OCR 引擎以使用新模型
+            try:
+                from backend.engine.ocr_engine import OCREngine
+                OCREngine._instance = None  # 重置单例，强制重新加载
+                ocr_new = OCREngine()
+                ocr_new.load()
+                if model_result:
+                    model_result["ocr"] = "ok"
+                else:
+                    model_result = {"ocr": "ok", "path": new_ocr_path}
+            except Exception as e:
+                logger.error(f"重新加载 OCR 模型失败: {e}")
+                if model_result:
+                    model_result["ocr"] = "error"
+                    model_result["ocr_error"] = str(e)
+                else:
+                    model_result = {"ocr": "error", "error": str(e)}
+        
         save_settings_obj(new_settings)
         
         # 构造返回消息
+        messages = []
+        
+        # 设备消息
         if device_result:
             if device_result.get("success"):
                 req = device_result["requested"]
                 act = device_result["actual"]
                 if req != act:
-                    # auto 模式回退
-                    msg = f"设置已保存！设备已切换为 {act.upper()}（自动检测）"
+                    messages.append(f"设备已切换为 {act.upper()}（自动检测）")
                 else:
-                    msg = f"设置已保存！设备已切换为 {act.upper()}"
+                    messages.append(f"设备已切换为 {act.upper()}")
             else:
-                err = device_result.get("error", "未知错误")
-                msg = f"设置已保存，但设备切换失败: {err}"
-            return OkResponse(message=msg)
+                messages.append(f"设备切换失败: {device_result.get('error', '未知错误')}")
+        
+        # 模型路径消息
+        if model_result:
+            if model_result.get("clip") == "ok":
+                messages.append("CLIP 模型已重新加载")
+            elif model_result.get("clip") == "error":
+                messages.append(f"CLIP 模型加载失败: {model_result.get('error')}")
+            if model_result.get("ocr") == "ok":
+                messages.append("OCR 模型已重新加载")
+            elif model_result.get("ocr") == "error":
+                messages.append(f"OCR 模型加载失败: {model_result.get('ocr_error')}")
+        
+        if messages:
+            return OkResponse(message="设置已保存！\n" + "\n".join(messages))
         
         return OkResponse(message="设置已保存")
     except Exception as e:
@@ -180,3 +239,69 @@ async def remove_directory(body: dict) -> OkResponse:
         save_settings_obj(settings)
         return OkResponse(message=f"已移除目录: {path}")
     return OkResponse(ok=False, message=f"目录不在列表中: {path}")
+
+
+@router.get("/model-paths")
+async def get_model_paths() -> dict:
+    """获取当前模型路径配置。"""
+    from config import get_clip_model_path, get_ocr_model_dir, _DEFAULT_CLIP_MODEL_NAME, _DEFAULT_OCR_MODEL_DIR
+    
+    settings = get_settings_obj()
+    current_clip = get_clip_model_path()
+    current_ocr = get_ocr_model_dir()
+    
+    # 检查模型是否存在
+    clip_exists = Path(current_clip).exists()
+    ocr_exists = Path(current_ocr).exists()
+    
+    return {
+        "clip": {
+            "default": _DEFAULT_CLIP_MODEL_NAME,
+            "current": current_clip,
+            "custom": settings.clip_model_path,
+            "exists": clip_exists,
+            "required_files": ["config.json", "pytorch_model.bin", "vocab.txt"],
+        },
+        "ocr": {
+            "default": _DEFAULT_OCR_MODEL_DIR,
+            "current": current_ocr,
+            "custom": settings.ocr_model_path,
+            "exists": ocr_exists,
+            "required_dirs": ["det", "rec", "cls"],
+        },
+    }
+
+
+@router.post("/model-paths/browse-clip", response_model=dict)
+async def browse_clip_model() -> dict:
+    """打开 CLIP 模型目录选择对话框。"""
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        # 在同步上下文中运行 tkinter
+        def _sync_pick():
+            from backend.api.files import _pick_folder_impl_sync
+            return _pick_folder_impl_sync()
+        path = await loop.run_in_executor(None, _sync_pick)
+        if path:
+            return {"ok": True, "path": path}
+        return {"ok": False, "error": "未选择目录"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/model-paths/browse-ocr", response_model=dict)
+async def browse_ocr_model() -> dict:
+    """打开 OCR 模型目录选择对话框。"""
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        def _sync_pick():
+            from backend.api.files import _pick_folder_impl_sync
+            return _pick_folder_impl_sync()
+        path = await loop.run_in_executor(None, _sync_pick)
+        if path:
+            return {"ok": True, "path": path}
+        return {"ok": False, "error": "未选择目录"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

@@ -94,6 +94,8 @@ class AppSettings(BaseModel):
     auto_index_on_start: bool = Field(default=False, description="启动时自动索引")
     exclude_dirs: List[str] = Field(default_factory=list, description="扫描时排除的目录名")
     device: DeviceType = Field(default=DeviceType.CPU, description="推理设备: cpu/cuda/auto")
+    clip_model_path: Optional[str] = Field(default=None, description="CLIP 语义模型路径（为空使用默认路径）")
+    ocr_model_path: Optional[str] = Field(default=None, description="OCR 模型目录路径（为空使用默认路径）")
 
 
 # ── 文件操作相关 ──────────────────────────────────────────────────

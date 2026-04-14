@@ -46,6 +46,16 @@ const indexMgrProgFill  = document.getElementById('index-mgr-prog-fill');
 const indexMgrProgTxt   = document.getElementById('index-mgr-prog-txt');
 const indexMgrProgStatus= document.getElementById('index-mgr-prog-status');
 
+// 模型路径相关 DOM
+const clipModelPath     = document.getElementById('clip-model-path');
+const ocrModelPath      = document.getElementById('ocr-model-path');
+const clipModelStatus    = document.getElementById('clip-model-status');
+const ocrModelStatus     = document.getElementById('ocr-model-status');
+const clipModelHint      = document.getElementById('clip-model-hint');
+const ocrModelHint       = document.getElementById('ocr-model-hint');
+const btnBrowseClipModel = document.getElementById('btn-browse-clip-model');
+const btnBrowseOcrModel  = document.getElementById('btn-browse-ocr-model');
+
 let _indexMgrScanTimer  = null;  // 弹窗内进度轮询定时器
 let _indexMgrQueue      = [];    // 增量索引任务队列（路径字符串数组）
 let _indexMgrScanLabel  = '';    // 当前正在索引的目录提示标签
@@ -82,6 +92,9 @@ document.addEventListener('DOMContentLoaded', () => {
   indexMgrBtnScan.addEventListener('click', indexMgrStartScan);
   indexMgrDirInput.addEventListener('keydown', e => { if (e.key === 'Enter') indexMgrAddToQueue(); });
   initIndexMgrResize();
+  // 模型路径浏览按钮
+  btnBrowseClipModel.addEventListener('click', browseClipModel);
+  btnBrowseOcrModel.addEventListener('click', browseOcrModel);
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -136,7 +149,7 @@ async function applySettingsToUI(s) {
 
   // 设备选择 - 先获取实际设备状态，如果设置与实际不符则修正显示
   const savedDevice = s.device || 'cpu';
-  
+
   try {
     const res = await fetch(`${API}/api/settings/device-status`).catch(() => null);
     if (res && res.ok) {
@@ -159,6 +172,51 @@ async function applySettingsToUI(s) {
     deviceSelect.value = savedDevice;
     updateDeviceHint(savedDevice);
   }
+
+  // 模型路径
+  await loadModelPaths(s);
+}
+
+async function loadModelPaths(s) {
+  try {
+    const res = await fetch(`${API}/api/settings/model-paths`).catch(() => null);
+    if (!res || !res.ok) return;
+    const data = await res.json();
+
+    // CLIP 模型
+    const clipCustom = s.clip_model_path || '';
+    clipModelPath.value = clipCustom;
+    if (clipCustom) {
+      clipModelHint.textContent = `当前: ${clipCustom}`;
+    } else {
+      clipModelHint.textContent = `默认: ${data.clip.default}`;
+    }
+    if (data.clip.exists) {
+      clipModelStatus.textContent = '✓ 已就绪';
+      clipModelStatus.style.color = '#4ade80';
+    } else {
+      clipModelStatus.textContent = '⚠ 缺失';
+      clipModelStatus.style.color = '#fbbf24';
+    }
+
+    // OCR 模型
+    const ocrCustom = s.ocr_model_path || '';
+    ocrModelPath.value = ocrCustom;
+    if (ocrCustom) {
+      ocrModelHint.textContent = `当前: ${ocrCustom}`;
+    } else {
+      ocrModelHint.textContent = `默认: ${data.ocr.default}`;
+    }
+    if (data.ocr.exists) {
+      ocrModelStatus.textContent = '✓ 已就绪';
+      ocrModelStatus.style.color = '#4ade80';
+    } else {
+      ocrModelStatus.textContent = '⚠ 缺失';
+      ocrModelStatus.style.color = '#fbbf24';
+    }
+  } catch (e) {
+    console.warn('加载模型路径失败:', e);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -168,6 +226,8 @@ async function saveSettings() {
   const dirs = getDisplayedDirs();
   const alpha = parseInt(alphaSlider.value) / 100;
   const device = deviceSelect.value;
+  const clipPath = clipModelPath.value.trim() || null;
+  const ocrPath = ocrModelPath.value.trim() || null;
 
   const settings = {
     scan_directories: dirs,
@@ -178,6 +238,8 @@ async function saveSettings() {
     auto_index_on_start: false,
     exclude_dirs:     [],
     device:           device,
+    clip_model_path:  clipPath,
+    ocr_model_path:   ocrPath,
   };
 
   try {
@@ -192,11 +254,21 @@ async function saveSettings() {
     }
     const data = await res.json();
     if (data.ok) {
-      // 显示设备切换结果
-      if (data.message && data.message.includes('设备')) {
-        _settingsToast(data.message, 'success');
+      // 显示设备切换和模型加载结果
+      if (data.message) {
+        // 如果消息包含换行，分行显示
+        const messages = data.message.split('\n');
+        if (messages.length > 1) {
+          messages.forEach(msg => {
+            if (msg.trim()) _settingsToast(msg.trim(), 'success');
+          });
+        } else {
+          _settingsToast(data.message, 'success');
+        }
         // 更新 UI 显示实际使用的设备
-        updateDeviceStatusFromMessage(data.message);
+        if (data.message.includes('设备')) {
+          updateDeviceStatusFromMessage(data.message);
+        }
       } else {
         _settingsToast('保存成功！', 'success');
       }
@@ -212,6 +284,58 @@ async function saveSettings() {
   } catch (e) {
     console.error('saveSettings 失败:', e);
     _settingsToast('保存失败：' + e.message, 'error');
+  }
+}
+
+// 浏览 CLIP 模型路径
+async function browseClipModel() {
+  try {
+    const res = await fetch(`${API}/api/settings/model-paths/browse-clip`, {
+      method: 'POST',
+    });
+    const data = await res.json();
+    if (data.ok && data.path) {
+      clipModelPath.value = data.path;
+      clipModelHint.textContent = `当前: ${data.path}`;
+      // 检查模型是否存在
+      const statusRes = await fetch(`${API}/api/settings/model-paths`);
+      const statusData = await statusRes.json();
+      if (statusData.clip && statusData.clip.exists) {
+        clipModelStatus.textContent = '✓ 已就绪';
+        clipModelStatus.style.color = '#4ade80';
+      } else {
+        clipModelStatus.textContent = '⚠ 缺失';
+        clipModelStatus.style.color = '#fbbf24';
+      }
+    }
+  } catch (e) {
+    _settingsToast('无法打开目录选择', 'error');
+  }
+}
+
+// 浏览 OCR 模型路径
+async function browseOcrModel() {
+  try {
+    const res = await fetch(`${API}/api/settings/model-paths/browse-ocr`, {
+      method: 'POST',
+    });
+    const data = await res.json();
+    if (data.ok && data.path) {
+      ocrModelPath.value = data.path;
+      ocrModelHint.textContent = `当前: ${data.path}`;
+      // 检查模型是否存在
+      const statusRes = await fetch(`${API}/api/settings/model-paths`);
+      const statusData = await statusRes.json();
+      if (statusData.ocr && statusData.ocr.exists) {
+        ocrModelStatus.textContent = '✓ 已就绪';
+        ocrModelStatus.style.color = '#4ade80';
+      } else {
+        ocrModelStatus.textContent = '⚠ 缺失';
+        ocrModelStatus.style.color = '#fbbf24';
+      }
+    }
+  } catch (e) {
+    _settingsToast('无法打开目录选择', 'error');
   }
 }
 

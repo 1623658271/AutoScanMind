@@ -18,18 +18,39 @@ from pathlib import Path
 # 必须在 import torch / paddleocr 之前设置
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
+# ══════════════════════════════════════════════════════════════════
+#  【关键】将所有三方库缓存 / 临时目录重定向到 exe 同级目录
+#  目的：打包后程序完全自包含，不向用户目录写入任何文件
+# ══════════════════════════════════════════════════════════════════
+if getattr(sys, "frozen", False):
+    _EXE_DIR = Path(sys.executable).parent.resolve()
+else:
+    _EXE_DIR = Path(__file__).parent.resolve()
+
+# 所有运行时写操作统一收进 data/ 目录，对外不暴露任何 .cache/ 目录
+_DATA_DIR = _EXE_DIR / "data"
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# HuggingFace / transformers 缓存 → data/cache/huggingface/
+_HF_CACHE = _DATA_DIR / "cache" / "huggingface"
+os.environ["HF_HOME"]               = str(_HF_CACHE)
+os.environ["HUGGINGFACE_HUB_CACHE"] = str(_HF_CACHE / "hub")
+os.environ["TRANSFORMERS_CACHE"]    = str(_HF_CACHE / "transformers")
+
+# PaddleOCR / PaddlePaddle 缓存 → data/cache/paddle/
+os.environ["PADDLE_HOME"] = str(_DATA_DIR / "cache" / "paddle")
+os.environ["PPOCR_HOME"]  = str(_DATA_DIR / "cache" / "paddleocr")
+
+# torch / CUDA 缓存 → data/cache/torch/
+os.environ["TORCH_HOME"]  = str(_DATA_DIR / "cache" / "torch")
+
 # ── 注册所有 DLL 子目录（PyInstaller 打包时必须手动补全）─────────────────────
-# PyInstaller 只把 _MEIPASS 根目录加入 DLL 搜索路径，torch/paddle/faiss 等库
-# 把自己的 DLL 放在子目录里，需要通过 os.add_dll_directory() 显式注册。
 if getattr(sys, "frozen", False):
     _meipass = Path(sys._MEIPASS)
     _dll_subdirs = [
-        # torch（核心 DLL 都在 lib 子目录）
         _meipass / "torch" / "lib",
         _meipass / "torch" / "bin",
-        # paddle（DLL 在 libs 子目录）
         _meipass / "paddle" / "libs",
-        # faiss（openblas / flang / libomp 等）
         _meipass / "faiss_cpu.libs",
     ]
     for _d in _dll_subdirs:
@@ -50,12 +71,14 @@ from config import API_BASE_URL, API_HOST, API_PORT, FRONTEND_DIR, LOG_DIR, LOG_
 
 # ── 日志配置 ──────────────────────────────────────────────────────
 logger.remove()
-logger.add(
-    sys.stderr,
-    level=LOG_LEVEL,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
-    colorize=True,
-)
+# console=False 模式下 sys.stderr 为 None，只在有终端时才添加控制台 sink
+if sys.stderr is not None:
+    logger.add(
+        sys.stderr,
+        level=LOG_LEVEL,
+        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
+        colorize=True,
+    )
 logger.add(
     str(LOG_DIR / "app_{time:YYYY-MM-DD}.log"),
     level="DEBUG",
@@ -82,12 +105,19 @@ def start_backend() -> None:
 
         app = create_app()
         logger.info(f"启动 FastAPI 服务：{API_BASE_URL}")
+
+        # ── 关键：uvicorn 在 windowed 打包模式下 sys.stderr 可能为 None，
+        #    导致其内部 logging.isatty() 崩溃。传入 log_config=None 禁用
+        #    uvicorn 默认日志（我们用 loguru）。
+        # ────────────────────────────────────────────────────────────────
+        UVICORN_LOG_CONFIG: dict | None = None
         uvicorn.run(
             app,
             host=API_HOST,
             port=API_PORT,
             log_level="warning",
             access_log=False,
+            log_config=UVICORN_LOG_CONFIG,
         )
     except Exception as e:
         import traceback
@@ -131,13 +161,11 @@ def wait_for_backend(timeout: float = 10.0) -> bool:
 # ══════════════════════════════════════════════════════════════════
 def _clear_webview2_cache() -> None:
     """
-    清除 Microsoft Edge WebView2 的磁盘缓存，确保每次启动加载最新前端文件。
-    WebView2 默认缓存目录: %LOCALAPPDATA%\\<AppName>\\EBWebView\\Default\\Cache
+    清除 WebView2 的磁盘缓存，确保每次启动加载最新前端文件。
+    缓存目录统一存放在 data/cache/webview2/ 内。
     """
     try:
-        # pywebview 默认使用的 user_data_dir 名称
-        app_name = "pywebview"
-        cache_dir = Path(os.environ.get("LOCALAPPDATA", "")) / app_name / "EBWebView" / "Default" / "Cache"
+        cache_dir = _DATA_DIR / "cache" / "webview2" / "EBWebView" / "Default" / "Cache"
         if cache_dir.exists():
             shutil.rmtree(cache_dir, ignore_errors=True)
             logger.debug(f"WebView2 缓存已清除: {cache_dir}")
@@ -158,6 +186,7 @@ def launch_window() -> None:
     logger.info("正在创建主窗口…")
 
     # pywebview 5.x API
+    webview_cache = str(_DATA_DIR / "cache" / "webview2")
     window = webview.create_window(
         title="AutoScanMind — 智能图片搜索",
         url=f"{API_BASE_URL}/",
@@ -169,13 +198,9 @@ def launch_window() -> None:
         confirm_close=False,
     )
 
-    # 可选：暴露 Python API 给 JS（pywebview 5.x 用 expose 方式）
-    # webview.expose(some_python_function, window=window)
-
     logger.success("主窗口已创建，启动 GUI 事件循环…")
     webview.start(
         debug=False,
-        # 仅 Windows CEF/EdgeChromium 生效
         private_mode=False,
     )
 

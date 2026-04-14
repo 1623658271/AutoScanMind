@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config import CLIP_BATCH_SIZE, CLIP_MODEL_NAME, get_clip_device
+from config import CLIP_BATCH_SIZE, get_clip_device, get_clip_model_path
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -118,7 +118,9 @@ class CLIPEngine:
         self.model = None
         self.processor = None
         self._feature_dim = 0
-        logger.info(f"CLIPEngine 初始化，设备: {self.device}，模型: {CLIP_MODEL_NAME}")
+        # 获取当前模型路径
+        self._model_path = get_clip_model_path()
+        logger.info(f"CLIPEngine 初始化，设备: {self.device}，模型: {self._model_path}")
 
     def set_device(self, device_name: str) -> bool:
         """
@@ -169,10 +171,12 @@ class CLIPEngine:
         """加载 CLIP 模型（首次调用时执行，带下载进度条）。"""
         if self.model is not None:
             return
-        logger.info(f"正在加载 CLIP 模型: {CLIP_MODEL_NAME}")
+        # 每次加载时重新获取模型路径（支持动态切换）
+        self._model_path = get_clip_model_path()
+        logger.info(f"正在加载 CLIP 模型: {self._model_path}")
 
         try:
-            is_local = Path(CLIP_MODEL_NAME).is_dir()
+            is_local = Path(self._model_path).is_dir()
 
             if not is_local:
                 # ── 远程模型：检查缓存 + 按需下载（带进度条）─────────
@@ -186,7 +190,7 @@ class CLIPEngine:
                 ]
                 need_download = False
                 for fname in model_files:
-                    cache_info = try_to_load_from_cache(CLIP_MODEL_NAME, fname)
+                    cache_info = try_to_load_from_cache(self._model_path, fname)
                     if cache_info is None:
                         need_download = True
                         break
@@ -221,18 +225,18 @@ class CLIPEngine:
                         logger.info("正在从 HuggingFace 下载模型...")
                         for fname in model_files:
                             try:
-                                hf_hub_download(CLIP_MODEL_NAME, fname, local_files_only=False)
+                                hf_hub_download(self._model_path, fname, local_files_only=False)
                             except Exception:
                                 pass
                         logger.info("模型文件下载完成，正在加载到内存...")
                     finally:
                         requests.Session.get = original_get
             else:
-                logger.info(f"使用本地模型: {CLIP_MODEL_NAME}")
+                logger.info(f"使用本地模型: {self._model_path}")
 
             # ── 使用 AutoModel/AutoProcessor 自动适配 CLIP 变体 ──
-            self.processor = AutoProcessor.from_pretrained(CLIP_MODEL_NAME, local_files_only=is_local)
-            self.model = AutoModel.from_pretrained(CLIP_MODEL_NAME, local_files_only=is_local).to(self.device)
+            self.processor = AutoProcessor.from_pretrained(self._model_path, local_files_only=is_local)
+            self.model = AutoModel.from_pretrained(self._model_path, local_files_only=is_local).to(self.device)
             self.model.eval()
 
             # 自动检测特征维度
