@@ -223,6 +223,8 @@ dist/AutoScanMind/
 
 CLIP 模型约 1.2GB，下载后将整个文件夹放入 `models/` 目录即可。
 
+> **⚠️ 模型格式要求**：目前程序使用 `AutoModel.from_pretrained()`（HuggingFace 格式）加载模型，`models/xxx/` 文件夹中必须包含 `config.json` + `pytorch_model.bin` 或 `model.safetensors`。Chinese-CLIP 官方原生的 `.pt` 格式（`clip_cn_vit-l-14.pt`）**暂不支持**，请确保下载的是 HuggingFace 格式的模型。
+
 #### 2. 运行程序
 
 直接双击 `AutoScanMind.exe`，程序会自动：
